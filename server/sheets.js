@@ -1,7 +1,6 @@
 import { google } from 'googleapis';
 import fs from 'fs';
 import path from 'path';
-import open from 'open';
 import http from 'http';
 import { fileURLToPath } from 'url';
 
@@ -24,28 +23,53 @@ let TAB_NAMES = {
 };
 
 export async function initAuth() {
-  const credPath = process.env.GOOGLE_CREDENTIALS_PATH;
-  if (!credPath) throw new Error('GOOGLE_CREDENTIALS_PATH not set');
+  // Check if already initialized (important for serverless -- avoid re-init on warm starts)
+  if (sheets) return sheets;
 
-  const content = JSON.parse(fs.readFileSync(credPath, 'utf-8'));
-  const creds = content.installed || content.web || {};
-  const { client_id, client_secret } = creds;
-  if (!client_id || !client_secret) throw new Error('Invalid credentials file');
+  let client_id, client_secret;
+
+  // Try env var first (Vercel), then local file (dev)
+  if (process.env.GOOGLE_CREDENTIALS_JSON) {
+    const content = JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON);
+    const creds = content.installed || content.web || {};
+    client_id = creds.client_id;
+    client_secret = creds.client_secret;
+  } else {
+    const credPath = process.env.GOOGLE_CREDENTIALS_PATH;
+    if (!credPath) throw new Error('GOOGLE_CREDENTIALS_PATH or GOOGLE_CREDENTIALS_JSON not set');
+    const content = JSON.parse(fs.readFileSync(credPath, 'utf-8'));
+    const creds = content.installed || content.web || {};
+    client_id = creds.client_id;
+    client_secret = creds.client_secret;
+  }
+
+  if (!client_id || !client_secret) throw new Error('Invalid credentials');
 
   const redirectUri = 'http://localhost:3456';
   const oAuth2Client = new google.auth.OAuth2(client_id, client_secret, redirectUri);
 
-  if (fs.existsSync(TOKEN_PATH)) {
-    const token = JSON.parse(fs.readFileSync(TOKEN_PATH, 'utf-8'));
+  // Try env var first (Vercel), then local file (dev)
+  let token;
+  if (process.env.GOOGLE_TOKEN_JSON) {
+    token = JSON.parse(process.env.GOOGLE_TOKEN_JSON);
+  } else if (fs.existsSync(TOKEN_PATH)) {
+    token = JSON.parse(fs.readFileSync(TOKEN_PATH, 'utf-8'));
+  }
+
+  if (token) {
     oAuth2Client.setCredentials(token);
 
-    oAuth2Client.on('tokens', (newTokens) => {
-      const existing = JSON.parse(fs.readFileSync(TOKEN_PATH, 'utf-8'));
-      const merged = { ...existing, ...newTokens };
-      fs.writeFileSync(TOKEN_PATH, JSON.stringify(merged, null, 2));
-      console.log('Token refreshed and saved.');
-    });
+    // Only save refreshed tokens locally (not on Vercel)
+    if (!process.env.GOOGLE_TOKEN_JSON) {
+      oAuth2Client.on('tokens', (newTokens) => {
+        const existing = JSON.parse(fs.readFileSync(TOKEN_PATH, 'utf-8'));
+        const merged = { ...existing, ...newTokens };
+        fs.writeFileSync(TOKEN_PATH, JSON.stringify(merged, null, 2));
+        console.log('Token refreshed and saved.');
+      });
+    }
   } else {
+    // Interactive OAuth flow -- only works locally
     const authUrl = oAuth2Client.generateAuthUrl({
       access_type: 'offline',
       scope: SCOPES,
@@ -54,6 +78,7 @@ export async function initAuth() {
 
     console.log('Opening browser for Google OAuth consent...');
     console.log('If browser does not open, visit this URL:\n', authUrl);
+    const open = (await import('open')).default;
     const code = await getAuthCodeViaBrowser(authUrl);
     const { tokens } = await oAuth2Client.getToken(code);
     oAuth2Client.setCredentials(tokens);
@@ -102,9 +127,7 @@ function getAuthCodeViaBrowser(authUrl) {
     });
 
     server.listen(3456, () => {
-      open(authUrl).catch(() => {
-        console.log('Could not open browser automatically.');
-      });
+      // browser opened by caller
     });
 
     setTimeout(() => {
@@ -119,6 +142,7 @@ export function getSheetNames() {
 }
 
 export async function getSheetData(sheetName, range) {
+  await initAuth();
   const tabName = TAB_NAMES[sheetName] || sheetName;
   const fullRange = range ? `'${tabName}'!${range}` : `'${tabName}'`;
 
@@ -131,6 +155,7 @@ export async function getSheetData(sheetName, range) {
 }
 
 export async function updateCell(sheetName, range, value) {
+  await initAuth();
   const tabName = TAB_NAMES[sheetName] || sheetName;
   const fullRange = `'${tabName}'!${range}`;
 
@@ -145,6 +170,7 @@ export async function updateCell(sheetName, range, value) {
 }
 
 export async function appendRow(sheetName, values) {
+  await initAuth();
   const tabName = TAB_NAMES[sheetName] || sheetName;
 
   await sheets.spreadsheets.values.append({
@@ -157,6 +183,7 @@ export async function appendRow(sheetName, values) {
 }
 
 export async function deleteRow(sheetName, rowIndex) {
+  await initAuth();
   const tabName = TAB_NAMES[sheetName] || sheetName;
 
   const meta = await sheets.spreadsheets.get({ spreadsheetId: getSpreadsheetId() });
@@ -181,6 +208,7 @@ export async function deleteRow(sheetName, rowIndex) {
 }
 
 export async function ensureTab(tabName) {
+  await initAuth();
   try {
     await sheets.spreadsheets.values.get({
       spreadsheetId: getSpreadsheetId(),
@@ -200,6 +228,7 @@ export async function ensureTab(tabName) {
 }
 
 export async function updateRow(sheetName, rowIndex, values) {
+  await initAuth();
   const tabName = TAB_NAMES[sheetName] || sheetName;
   const sheetRow = rowIndex + 2;
   const endCol = String.fromCharCode(64 + values.length);
