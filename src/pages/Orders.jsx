@@ -29,13 +29,13 @@ function parseItems(items) {
 }
 
 const statusConfig = {
-  new: { bg: 'bg-red-100 text-red-700', label: 'New' },
   preparing: { bg: 'bg-yellow-100 text-yellow-700', label: 'Preparing' },
-  out_for_delivery: { bg: 'bg-blue-100 text-blue-700', label: 'Out for Delivery' },
+  on_the_way: { bg: 'bg-blue-100 text-blue-700', label: 'On the Way' },
   delivered: { bg: 'bg-green-100 text-green-700', label: 'Delivered' },
+  cancelled: { bg: 'bg-red-100 text-red-700', label: 'Cancelled' },
 };
 
-const tabs = ['All', 'New', 'Preparing', 'Out for Delivery', 'Delivered'];
+const tabs = ['All', 'Preparing', 'On the Way', 'Delivered', 'Cancelled'];
 
 function tabToStatus(tab) {
   return tab.toLowerCase().replace(/ /g, '_');
@@ -80,7 +80,7 @@ export default function Orders() {
   };
 
   const filtered = orders.filter((o) => {
-    const matchesTab = activeTab === 'All' || (o.status || 'new').toLowerCase() === tabToStatus(activeTab);
+    const matchesTab = activeTab === 'All' || (o.status || 'preparing').toLowerCase() === tabToStatus(activeTab);
     if (!matchesTab) return false;
     if (!search.trim()) return true;
     const q = search.toLowerCase();
@@ -133,7 +133,7 @@ export default function Orders() {
             {tab}
             {tab !== 'All' && (
               <span className="ml-1.5 text-xs opacity-70">
-                ({orders.filter((o) => (o.status || 'new').toLowerCase() === tabToStatus(tab)).length})
+                ({orders.filter((o) => (o.status || 'preparing').toLowerCase() === tabToStatus(tab)).length})
               </span>
             )}
           </button>
@@ -150,7 +150,7 @@ export default function Orders() {
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {filtered.map((order) => {
             const items = parseItems(order.items);
-            const cfg = statusConfig[(order.status || 'new').toLowerCase()] || statusConfig.new;
+            const cfg = statusConfig[(order.status || 'preparing').toLowerCase()] || statusConfig.preparing;
 
             return (
               <div
@@ -225,15 +225,15 @@ export default function Orders() {
                 <div className="mt-3 pt-3 border-t border-gray-100">
                   <div className="relative">
                     <select
-                      value={(order.status || 'new').toLowerCase()}
+                      value={(order.status || 'preparing').toLowerCase()}
                       onChange={(e) => updateStatus(order.orderId, e.target.value)}
                       disabled={updatingId === order.orderId}
                       className="w-full appearance-none bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-500 disabled:opacity-50"
                     >
-                      <option value="new">New</option>
                       <option value="preparing">Preparing</option>
-                      <option value="out_for_delivery">Out for Delivery</option>
+                      <option value="on_the_way">On the Way</option>
                       <option value="delivered">Delivered</option>
+                      <option value="cancelled">Cancelled</option>
                     </select>
                     <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
                   </div>
