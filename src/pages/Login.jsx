@@ -38,10 +38,10 @@ export default function Login({ onLogin }) {
         {/* Logo */}
         <div className="text-center mb-8">
           <div className="w-16 h-16 rounded-2xl bg-brand-500 flex items-center justify-center text-white font-bold text-3xl mx-auto mb-4">
-            M
+            O
           </div>
-          <h1 className="text-2xl font-bold text-gray-900">Mood & Food</h1>
-          <p className="text-gray-500 text-sm mt-1">Restaurant Dashboard</p>
+          <h1 className="text-2xl font-bold text-gray-900">OTTO Food on Wheels</h1>
+          <p className="text-gray-500 text-sm mt-1">Dashboard</p>
         </div>
 
         {/* Form */}

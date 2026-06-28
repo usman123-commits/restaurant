@@ -39,11 +39,11 @@ export default function Sidebar({ open, onClose, onLogout }) {
         <div className="flex items-center justify-between px-6 py-5 border-b border-gray-800">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-lg bg-brand-500 flex items-center justify-center text-white font-bold text-lg">
-              M
+              O
             </div>
             <div>
-              <h1 className="font-bold text-lg leading-tight">Mood & Food</h1>
-              <p className="text-xs text-gray-400">Dashboard</p>
+              <h1 className="font-bold text-lg leading-tight">OTTO</h1>
+              <p className="text-xs text-gray-400">Food on Wheels</p>
             </div>
           </div>
           <button onClick={onClose} className="lg:hidden text-gray-400 hover:text-white">
