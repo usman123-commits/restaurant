@@ -35,7 +35,11 @@ const statusConfig = {
   delivered: { bg: 'bg-green-100 text-green-700', label: 'Delivered' },
 };
 
-const tabs = ['All', 'New', 'Preparing', 'Delivered'];
+const tabs = ['All', 'New', 'Preparing', 'Out for Delivery', 'Delivered'];
+
+function tabToStatus(tab) {
+  return tab.toLowerCase().replace(/ /g, '_');
+}
 
 export default function Orders() {
   const [orders, setOrders] = useState([]);
@@ -76,7 +80,7 @@ export default function Orders() {
   };
 
   const filtered = orders.filter((o) => {
-    const matchesTab = activeTab === 'All' || (o.status || 'new').toLowerCase() === activeTab.toLowerCase();
+    const matchesTab = activeTab === 'All' || (o.status || 'new').toLowerCase() === tabToStatus(activeTab);
     if (!matchesTab) return false;
     if (!search.trim()) return true;
     const q = search.toLowerCase();
@@ -129,7 +133,7 @@ export default function Orders() {
             {tab}
             {tab !== 'All' && (
               <span className="ml-1.5 text-xs opacity-70">
-                ({orders.filter((o) => (o.status || 'new').toLowerCase() === tab.toLowerCase()).length})
+                ({orders.filter((o) => (o.status || 'new').toLowerCase() === tabToStatus(tab)).length})
               </span>
             )}
           </button>
