@@ -76,9 +76,13 @@ export async function initAuth() {
       prompt: 'consent',
     });
 
+    if (process.env.VERCEL) {
+      throw new Error('No Google token found. Set GOOGLE_TOKEN_JSON env var in Vercel.');
+    }
     console.log('Opening browser for Google OAuth consent...');
     console.log('If browser does not open, visit this URL:\n', authUrl);
     const open = (await import('open')).default;
+    await open(authUrl).catch(() => console.log('Could not open browser automatically.'));
     const code = await getAuthCodeViaBrowser(authUrl);
     const { tokens } = await oAuth2Client.getToken(code);
     oAuth2Client.setCredentials(tokens);
