@@ -6,7 +6,7 @@ const router = Router();
 // GET /api/menu - all menu items
 router.get('/', async (req, res) => {
   try {
-    const rows = await getSheetData('Menu', 'A:F');
+    const rows = await getSheetData('Menu', 'A:Z');
     if (rows.length < 2) {
       return res.json([]);
     }
@@ -37,14 +37,22 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ error: 'category, item, and price are required' });
     }
 
-    const values = [
-      category,
-      item,
-      String(price),
-      description || '',
-      available !== undefined ? String(available) : 'TRUE',
-      image_url || '',
-    ];
+    const rows = await getSheetData('Menu', 'A:Z');
+    const headers = rows[0] || [];
+
+    const fieldMap = {
+      category, item, price: String(price),
+      description: description || '',
+      available: available !== undefined ? String(available) : 'TRUE',
+      image_url: image_url || '',
+    };
+
+    const values = headers.map((header) => {
+      const key = header.toLowerCase().replace(/\s+/g, '_');
+      if (key in fieldMap) return fieldMap[key];
+      if (header in fieldMap) return fieldMap[header];
+      return '';
+    });
 
     await appendRow('Menu', values);
     res.status(201).json({ success: true });
@@ -62,25 +70,21 @@ router.patch('/:rowIndex', async (req, res) => {
       return res.status(400).json({ error: 'Invalid row index' });
     }
 
-    // Get current row data to merge with updates
-    const rows = await getSheetData('Menu', 'A:F');
+    const rows = await getSheetData('Menu', 'A:Z');
     if (rowIndex + 1 >= rows.length) {
       return res.status(404).json({ error: 'Row not found' });
     }
 
     const headers = rows[0];
-    const currentRow = rows[rowIndex + 1]; // +1 for header
+    const currentRow = rows[rowIndex + 1];
 
-    const { category, item, price, description, available, image_url } = req.body;
-
-    const updatedValues = [
-      category !== undefined ? category : (currentRow[0] || ''),
-      item !== undefined ? item : (currentRow[1] || ''),
-      price !== undefined ? String(price) : (currentRow[2] || ''),
-      description !== undefined ? description : (currentRow[3] || ''),
-      available !== undefined ? String(available) : (currentRow[4] || ''),
-      image_url !== undefined ? image_url : (currentRow[5] || ''),
-    ];
+    const updates = req.body;
+    const updatedValues = headers.map((header, i) => {
+      const key = header.toLowerCase().replace(/\s+/g, '_');
+      if (key in updates) return String(updates[key]);
+      if (updates[header] !== undefined) return String(updates[header]);
+      return currentRow[i] || '';
+    });
 
     await updateRow('Menu', rowIndex, updatedValues);
     res.json({ success: true });
