@@ -2,7 +2,9 @@ import { useState, useEffect } from 'react';
 import { UtensilsCrossed, Plus, X, ChevronDown, ChevronRight, Pencil, Check, Search, Trash2, Loader2 } from 'lucide-react';
 
 function fmt(n) {
-  return Number(n || 0).toLocaleString('en-PK');
+  if (n == null || n === '') return '0';
+  const num = Number(String(n).replace(/[^0-9.\-]/g, ''));
+  return isNaN(num) ? '0' : num.toLocaleString('en-PK');
 }
 
 function Spinner({ size = 16, className = '' }) {
