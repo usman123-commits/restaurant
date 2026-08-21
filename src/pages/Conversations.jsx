@@ -32,6 +32,15 @@ export default function Conversations() {
     `/api/conversations?limit=${PAGE_SIZE}&offset=0`
   );
 
+  // SWR for active handoffs
+  const { data: rawHandoffs, revalidate: revalidateHandoffs } = useStaleData('/api/handoffs');
+  const handoffsList = Array.isArray(rawHandoffs) ? rawHandoffs : (rawHandoffs?.handoffs || []);
+  const activeHandoffPhones = new Set(
+    handoffsList
+      .filter((h) => h.status !== 'resolved' && h.phone)
+      .map((h) => String(h.phone))
+  );
+
   const firstPageList = firstPage?.conversations || [];
   const total = firstPage?.total || 0;
   const hasMore = firstPage?.hasMore || false;
@@ -70,13 +79,7 @@ export default function Conversations() {
       if (data.success) {
         invalidateCache('/api/handoffs');
         setHandoffSuccess((prev) => ({ ...prev, [conv.phone]: true }));
-        setTimeout(() => {
-          setHandoffSuccess((prev) => {
-            const next = { ...prev };
-            delete next[conv.phone];
-            return next;
-          });
-        }, 3000);
+        revalidateHandoffs();
       }
     } catch {
       // silent
@@ -137,65 +140,70 @@ export default function Conversations() {
       ) : (
         <>
           <div className="bg-white rounded-xl shadow-sm divide-y divide-gray-100">
-            {filtered.map((conv) => (
-              <div
-                key={conv.phone}
-                onClick={() => navigate(`/conversations/${encodeURIComponent(conv.phone)}`)}
-                className="w-full flex items-center gap-4 px-5 py-4 hover:bg-gray-50 transition-colors text-left cursor-pointer group"
-              >
-                <div className="w-10 h-10 rounded-full bg-brand-100 text-brand-600 flex items-center justify-center font-semibold text-sm shrink-0">
-                  {(conv.profileName || conv.phone || '?').charAt(0).toUpperCase()}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between">
-                    <p className="font-medium text-gray-900 truncate group-hover:text-brand-600 transition-colors">
-                      {conv.profileName || conv.phone}
-                    </p>
-                    <span className="text-xs text-gray-400 shrink-0 ml-2">
-                      {timeAgo(conv.lastTimestamp)}
-                    </span>
+            {filtered.map((conv) => {
+              const isHandedOff = handoffSuccess[conv.phone] || activeHandoffPhones.has(String(conv.phone));
+              return (
+                <div
+                  key={conv.phone}
+                  onClick={() => navigate(`/conversations/${encodeURIComponent(conv.phone)}`)}
+                  className="w-full flex items-center gap-4 px-5 py-4 hover:bg-gray-50 transition-colors text-left cursor-pointer group"
+                >
+                  <div className="w-10 h-10 rounded-full bg-brand-100 text-brand-600 flex items-center justify-center font-semibold text-sm shrink-0">
+                    {(conv.profileName || conv.phone || '?').charAt(0).toUpperCase()}
                   </div>
-                  <p className="text-sm text-gray-500 truncate mt-0.5">
-                    {conv.lastMessage || 'No messages'}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  {/* Manual Handoff Button */}
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleHandoff(conv);
-                    }}
-                    disabled={handingOffPhone === conv.phone}
-                    className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors disabled:opacity-50 ${
-                      handoffSuccess[conv.phone]
-                        ? 'bg-green-50 text-green-700 border-green-200'
-                        : 'bg-white text-gray-700 border-gray-200 hover:bg-brand-50 hover:text-brand-600 hover:border-brand-200'
-                    }`}
-                    title="Hand off this conversation to staff"
-                  >
-                    {handoffSuccess[conv.phone] ? (
-                      <>
-                        <Check size={12} className="text-green-600" />
-                        <span>Handed Off</span>
-                      </>
-                    ) : (
-                      <>
-                        <PhoneForwarded size={12} className={handingOffPhone === conv.phone ? 'animate-pulse' : ''} />
-                        <span>{handingOffPhone === conv.phone ? 'Handing off...' : 'Hand Off'}</span>
-                      </>
-                    )}
-                  </button>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between">
+                      <p className="font-medium text-gray-900 truncate group-hover:text-brand-600 transition-colors">
+                        {conv.profileName || conv.phone}
+                      </p>
+                      <span className="text-xs text-gray-400 shrink-0 ml-2">
+                        {timeAgo(conv.lastTimestamp)}
+                      </span>
+                    </div>
+                    <p className="text-sm text-gray-500 truncate mt-0.5">
+                      {conv.lastMessage || 'No messages'}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {/* Manual Handoff Button / Badge */}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (!isHandedOff) {
+                          handleHandoff(conv);
+                        }
+                      }}
+                      disabled={isHandedOff || handingOffPhone === conv.phone}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+                        isHandedOff
+                          ? 'bg-emerald-50 text-emerald-700 border-emerald-300 shadow-sm cursor-default'
+                          : 'bg-white text-gray-700 border-gray-200 hover:bg-brand-50 hover:text-brand-600 hover:border-brand-200 shadow-xs'
+                      } disabled:opacity-90`}
+                      title={isHandedOff ? 'Conversation is actively handed off' : 'Hand off this conversation to staff'}
+                    >
+                      {isHandedOff ? (
+                        <>
+                          <Check size={13} className="text-emerald-600 stroke-[2.5]" />
+                          <span>Handed Off</span>
+                        </>
+                      ) : (
+                        <>
+                          <PhoneForwarded size={13} className={handingOffPhone === conv.phone ? 'animate-pulse' : ''} />
+                          <span>{handingOffPhone === conv.phone ? 'Handing off...' : 'Hand Off'}</span>
+                        </>
+                      )}
+                    </button>
 
-                  {conv.messageCount > 0 && (
-                    <span className="bg-gray-100 text-gray-600 text-xs font-medium px-2 py-0.5 rounded-full">
-                      {conv.messageCount}
-                    </span>
-                  )}
-                  <ChevronRight size={16} className="text-gray-300" />
+                    {conv.messageCount > 0 && (
+                      <span className="bg-gray-100 text-gray-600 text-xs font-medium px-2 py-0.5 rounded-full">
+                        {conv.messageCount}
+                      </span>
+                    )}
+                    <ChevronRight size={16} className="text-gray-300" />
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           {/* Load more */}

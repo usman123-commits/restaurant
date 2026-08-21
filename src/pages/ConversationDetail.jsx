@@ -36,6 +36,11 @@ export default function ConversationDetail() {
     `/api/conversations/${encodeURIComponent(phone)}?limit=${MSG_LIMIT}`
   );
 
+  // SWR for active handoffs
+  const { data: rawHandoffs, revalidate: revalidateHandoffs } = useStaleData('/api/handoffs');
+  const handoffsList = Array.isArray(rawHandoffs) ? rawHandoffs : (rawHandoffs?.handoffs || []);
+  const isHandedOff = handoffSuccess || handoffsList.some((h) => h.status !== 'resolved' && String(h.phone) === String(phone));
+
   const total = extraData?.total ?? rawData?.total ?? 0;
   const profileName = extraData?.profileName ?? rawData?.profileName ?? phone;
   const messages = extraData?.messages ?? rawData?.messages ?? [];
@@ -62,6 +67,7 @@ export default function ConversationDetail() {
   };
 
   const handleHandoff = async () => {
+    if (isHandedOff) return;
     setHandingOff(true);
     try {
       const lastMsg = messages.length > 0
@@ -83,7 +89,7 @@ export default function ConversationDetail() {
       if (data.success) {
         invalidateCache('/api/handoffs');
         setHandoffSuccess(true);
-        setTimeout(() => setHandoffSuccess(false), 3000);
+        revalidateHandoffs();
       }
     } catch {
       // silent
@@ -116,17 +122,17 @@ export default function ConversationDetail() {
         {/* Manual Handoff Button in Detail */}
         <button
           onClick={handleHandoff}
-          disabled={handingOff}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors disabled:opacity-50 ${
-            handoffSuccess
-              ? 'bg-green-50 text-green-700 border-green-200'
-              : 'bg-white text-gray-700 border-gray-200 hover:bg-brand-50 hover:text-brand-600 hover:border-brand-200'
-          }`}
-          title="Hand off this conversation to staff"
+          disabled={isHandedOff || handingOff}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+            isHandedOff
+              ? 'bg-emerald-50 text-emerald-700 border-emerald-300 shadow-sm cursor-default'
+              : 'bg-white text-gray-700 border-gray-200 hover:bg-brand-50 hover:text-brand-600 hover:border-brand-200 shadow-xs'
+          } disabled:opacity-90`}
+          title={isHandedOff ? 'Conversation is actively handed off' : 'Hand off this conversation to staff'}
         >
-          {handoffSuccess ? (
+          {isHandedOff ? (
             <>
-              <Check size={14} className="text-green-600" />
+              <Check size={14} className="text-emerald-600 stroke-[2.5]" />
               <span>Handed Off</span>
             </>
           ) : (
