@@ -1,10 +1,10 @@
-import { useState, useEffect } from 'react';
 import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer,
 } from 'recharts';
-import { ShoppingBag, DollarSign, TrendingUp, Target } from 'lucide-react';
+import { ShoppingBag, DollarSign, TrendingUp, Target, RefreshCw } from 'lucide-react';
 import StatCard from '../components/StatCard';
+import { useStaleData } from '../hooks/useStaleData';
 
 function fmt(n) {
   return Number(n || 0).toLocaleString('en-PK');
@@ -25,18 +25,10 @@ function CustomTooltip({ active, payload, label, prefix = '' }) {
 }
 
 export default function Dashboard() {
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const { data, revalidating } = useStaleData('/api/analytics');
 
-  useEffect(() => {
-    fetch('/api/analytics', { credentials: 'include' })
-      .then((r) => r.json())
-      .then(setData)
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
-
-  if (loading) {
+  // Only block render if we have absolutely no data yet (very first ever load)
+  if (!data && revalidating) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="w-8 h-8 border-4 border-brand-500 border-t-transparent rounded-full animate-spin-slow" />
@@ -66,7 +58,12 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
-      <h2 className="text-2xl font-bold text-gray-900">Analytics Overview</h2>
+      <div className="flex items-center gap-2">
+        <h2 className="text-2xl font-bold text-gray-900">Analytics Overview</h2>
+        {revalidating && (
+          <span className="w-2 h-2 rounded-full bg-brand-400 animate-pulse" title="Refreshing..." />
+        )}
+      </div>
 
       {/* Stat cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

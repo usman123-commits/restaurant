@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { PhoneForwarded, CheckCircle } from 'lucide-react';
+import { useStaleData, invalidateCache } from '../hooks/useStaleData';
 
 function timeAgo(dateStr) {
   if (!dateStr) return '';
@@ -14,31 +15,29 @@ function timeAgo(dateStr) {
   return `${days}d ago`;
 }
 
+const HANDOFFS_URL = '/api/handoffs';
+
 export default function Handoffs() {
-  const [handoffs, setHandoffs] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [resolving, setResolving] = useState(null);
 
-  const fetchHandoffs = () => {
-    fetch('/api/handoffs', { credentials: 'include' })
-      .then((r) => r.json())
-      .then((data) => setHandoffs(Array.isArray(data) ? data : data.handoffs || []))
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  };
-
-  useEffect(() => { fetchHandoffs(); }, []);
+  const { data: rawData, revalidating, revalidate } = useStaleData(HANDOFFS_URL);
+  const handoffs = Array.isArray(rawData) ? rawData : (rawData?.handoffs || []);
 
   const resolve = async (phone) => {
     setResolving(phone);
     try {
-      await fetch(`/api/handoffs/${encodeURIComponent(phone)}/resolve`, { method: 'PATCH', credentials: 'include' });
-      fetchHandoffs();
+      await fetch(`/api/handoffs/${encodeURIComponent(phone)}/resolve`, {
+        method: 'PATCH',
+        credentials: 'include',
+      });
+      invalidateCache(HANDOFFS_URL);
+      revalidate();
     } catch { /* silent */ }
     setResolving(null);
   };
 
-  if (loading) {
+  // Only block on absolute first load (no stale data yet)
+  if (!rawData && revalidating) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="w-8 h-8 border-4 border-brand-500 border-t-transparent rounded-full animate-spin-slow" />
@@ -49,7 +48,12 @@ export default function Handoffs() {
   if (handoffs.length === 0) {
     return (
       <div className="space-y-6">
-        <h2 className="text-2xl font-bold text-gray-900">Handoffs</h2>
+        <div className="flex items-center gap-2">
+          <h2 className="text-2xl font-bold text-gray-900">Handoffs</h2>
+          {revalidating && (
+            <span className="w-2 h-2 rounded-full bg-brand-400 animate-pulse" title="Refreshing..." />
+          )}
+        </div>
         <div className="text-center py-20 text-gray-400">
           <PhoneForwarded size={48} className="mx-auto mb-3 opacity-40" />
           <p>No handoffs at the moment</p>
@@ -60,7 +64,12 @@ export default function Handoffs() {
 
   return (
     <div className="space-y-6">
-      <h2 className="text-2xl font-bold text-gray-900">Handoffs</h2>
+      <div className="flex items-center gap-2">
+        <h2 className="text-2xl font-bold text-gray-900">Handoffs</h2>
+        {revalidating && (
+          <span className="w-2 h-2 rounded-full bg-brand-400 animate-pulse" title="Refreshing..." />
+        )}
+      </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
         {handoffs.map((h) => {

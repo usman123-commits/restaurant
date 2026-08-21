@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { UtensilsCrossed, Plus, X, ChevronDown, ChevronRight, Pencil, Check, Search, Trash2, Loader2 } from 'lucide-react';
+import { useStaleData, invalidateCache } from '../hooks/useStaleData';
 
 function fmt(n) {
   if (n == null || n === '') return '0';
@@ -11,9 +12,9 @@ function Spinner({ size = 16, className = '' }) {
   return <Loader2 size={size} className={`animate-spin-slow ${className}`} />;
 }
 
+const MENU_URL = '/api/menu';
+
 export default function MenuManager() {
-  const [items, setItems] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [editIdx, setEditIdx] = useState(null);
   const [editData, setEditData] = useState({});
@@ -25,15 +26,17 @@ export default function MenuManager() {
   const [togglingIdx, setTogglingIdx] = useState(null);
   const [deletingIdx, setDeletingIdx] = useState(null);
 
-  const fetchMenu = () => {
-    fetch('/api/menu', { credentials: 'include' })
-      .then((r) => r.json())
-      .then((data) => setItems(Array.isArray(data) ? data : []))
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  };
+  const { data: rawItems, revalidating, revalidate } = useStaleData(MENU_URL, {
+    transform: (d) => (Array.isArray(d) ? d : []),
+  });
 
-  useEffect(() => { fetchMenu(); }, []);
+  const items = rawItems ?? [];
+
+  // Convenience: invalidate cache then revalidate
+  const fetchMenu = () => {
+    invalidateCache(MENU_URL);
+    revalidate();
+  };
 
   const categories = [...new Set(items.map((i) => i.category).filter(Boolean))];
 
@@ -139,7 +142,8 @@ export default function MenuManager() {
     return acc;
   }, {});
 
-  if (loading) {
+  // Only block on absolute first load (no stale data yet)
+  if (!rawItems && revalidating) {
     return (
       <div className="flex items-center justify-center h-64">
         <Spinner size={32} className="text-brand-500" />
@@ -150,7 +154,12 @@ export default function MenuManager() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <h2 className="text-2xl font-bold text-gray-900">Menu</h2>
+        <div className="flex items-center gap-2">
+          <h2 className="text-2xl font-bold text-gray-900">Menu</h2>
+          {revalidating && (
+            <span className="w-2 h-2 rounded-full bg-brand-400 animate-pulse" title="Refreshing..." />
+          )}
+        </div>
         <div className="flex items-center gap-3">
           <div className="relative">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />

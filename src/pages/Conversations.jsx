@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { MessageSquare, ChevronRight, Search, Loader2 } from 'lucide-react';
+import { useStaleData } from '../hooks/useStaleData';
 
 function timeAgo(dateStr) {
   if (!dateStr) return '';
@@ -19,33 +20,34 @@ function timeAgo(dateStr) {
 const PAGE_SIZE = 20;
 
 export default function Conversations() {
-  const [conversations, setConversations] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [extraPages, setExtraPages] = useState([]);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [hasMore, setHasMore] = useState(false);
-  const [total, setTotal] = useState(0);
   const [search, setSearch] = useState('');
   const navigate = useNavigate();
 
-  const fetchConversations = useCallback((offset = 0, append = false) => {
-    const setter = append ? setLoadingMore : setLoading;
-    setter(true);
-    fetch(`/api/conversations?limit=${PAGE_SIZE}&offset=${offset}`, { credentials: 'include' })
-      .then((r) => r.json())
-      .then((data) => {
-        const list = data.conversations || [];
-        setConversations((prev) => append ? [...prev, ...list] : list);
-        setHasMore(data.hasMore || false);
-        setTotal(data.total || 0);
-      })
-      .catch(() => {})
-      .finally(() => setter(false));
-  }, []);
+  // SWR for the first page
+  const { data: firstPage, revalidating } = useStaleData(
+    `/api/conversations?limit=${PAGE_SIZE}&offset=0`
+  );
 
-  useEffect(() => { fetchConversations(0); }, [fetchConversations]);
+  const firstPageList = firstPage?.conversations || [];
+  const total = firstPage?.total || 0;
+  const hasMore = firstPage?.hasMore || false;
 
-  const loadMore = () => {
-    fetchConversations(conversations.length, true);
+  // All conversations = first page + any extra pages loaded via "Load more"
+  const conversations = [...firstPageList, ...extraPages];
+
+  const loadMore = async () => {
+    setLoadingMore(true);
+    try {
+      const res = await fetch(
+        `/api/conversations?limit=${PAGE_SIZE}&offset=${conversations.length}`,
+        { credentials: 'include' }
+      );
+      const data = await res.json();
+      setExtraPages((prev) => [...prev, ...(data.conversations || [])]);
+    } catch { /* silent */ }
+    setLoadingMore(false);
   };
 
   const filtered = conversations.filter((conv) => {
@@ -58,7 +60,8 @@ export default function Conversations() {
     );
   });
 
-  if (loading) {
+  // Only block on absolute first load (no stale data yet)
+  if (!firstPage && revalidating) {
     return (
       <div className="flex items-center justify-center h-64">
         <Loader2 size={32} className="animate-spin-slow text-brand-500" />
@@ -70,7 +73,12 @@ export default function Conversations() {
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900">Conversations</h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-2xl font-bold text-gray-900">Conversations</h2>
+            {revalidating && (
+              <span className="w-2 h-2 rounded-full bg-brand-400 animate-pulse" title="Refreshing..." />
+            )}
+          </div>
           <p className="text-sm text-gray-500 mt-0.5">
             {total} customer{total !== 1 ? 's' : ''} -- showing {conversations.length}
           </p>

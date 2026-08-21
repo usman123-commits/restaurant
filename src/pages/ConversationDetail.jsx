@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, MessageSquare, Loader2 } from 'lucide-react';
+import { useStaleData } from '../hooks/useStaleData';
 
 function formatTime(dateStr) {
   if (!dateStr) return '';
@@ -19,36 +20,42 @@ const MSG_LIMIT = 50;
 export default function ConversationDetail() {
   const { phone } = useParams();
   const navigate = useNavigate();
-  const [messages, setMessages] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [extraData, setExtraData] = useState(null);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [profileName, setProfileName] = useState('');
-  const [total, setTotal] = useState(0);
-  const [currentLimit, setCurrentLimit] = useState(MSG_LIMIT);
   const bottomRef = useRef(null);
 
-  const fetchMessages = (limit = MSG_LIMIT, scrollToBottom = true) => {
-    const setter = limit > MSG_LIMIT ? setLoadingMore : setLoading;
-    setter(true);
-    fetch(`/api/conversations/${encodeURIComponent(phone)}?limit=${limit}`, { credentials: 'include' })
-      .then((r) => r.json())
-      .then((data) => {
-        setMessages(data.messages || []);
-        setTotal(data.total || 0);
-        setProfileName(data.profileName || phone);
-        setCurrentLimit(limit);
-        if (scrollToBottom) {
-          setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
-        }
-      })
-      .catch(() => {})
-      .finally(() => setter(false));
-  };
+  // Clear extraData when the phone changes
+  useEffect(() => {
+    setExtraData(null);
+  }, [phone]);
 
-  useEffect(() => { fetchMessages(); }, [phone]);
+  const { data: rawData, revalidating } = useStaleData(
+    `/api/conversations/${encodeURIComponent(phone)}?limit=${MSG_LIMIT}`
+  );
 
-  const loadAll = () => {
-    fetchMessages(total, false);
+  const total = extraData?.total ?? rawData?.total ?? 0;
+  const profileName = extraData?.profileName ?? rawData?.profileName ?? phone;
+  const messages = extraData?.messages ?? rawData?.messages ?? [];
+
+  // Scroll to bottom when messages load or change
+  const prevMessagesLength = useRef(0);
+  useEffect(() => {
+    if (messages.length > 0 && messages.length !== prevMessagesLength.current) {
+      setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+      prevMessagesLength.current = messages.length;
+    }
+  }, [messages]);
+
+  const loadAll = async () => {
+    setLoadingMore(true);
+    try {
+      const res = await fetch(`/api/conversations/${encodeURIComponent(phone)}?limit=${total}`, {
+        credentials: 'include',
+      });
+      const data = await res.json();
+      setExtraData(data);
+    } catch { /* silent */ }
+    setLoadingMore(false);
   };
 
   const hasMore = total > messages.length;
@@ -64,7 +71,12 @@ export default function ConversationDetail() {
           <ArrowLeft size={20} className="text-gray-600" />
         </button>
         <div className="flex-1">
-          <h2 className="text-lg font-bold text-gray-900">{profileName}</h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-lg font-bold text-gray-900">{profileName}</h2>
+            {revalidating && (
+              <span className="w-1.5 h-1.5 rounded-full bg-brand-400 animate-pulse" title="Refreshing..." />
+            )}
+          </div>
           <p className="text-sm text-gray-500">{phone} -- {total} messages</p>
         </div>
       </div>
@@ -76,7 +88,7 @@ export default function ConversationDetail() {
           backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'60\' height=\'60\' viewBox=\'0 0 60 60\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'none\' fill-rule=\'evenodd\'%3E%3Cg fill=\'%23f3f4f6\' fill-opacity=\'0.4\'%3E%3Cpath d=\'M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z\'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")',
         }}
       >
-        {loading ? (
+        {!rawData && revalidating ? (
           <div className="flex items-center justify-center h-40">
             <Loader2 size={32} className="animate-spin-slow text-brand-500" />
           </div>

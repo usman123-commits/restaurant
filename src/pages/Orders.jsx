@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { ShoppingBag, Clock, MapPin, Phone, ChevronDown, Search } from 'lucide-react';
+import { useStaleData, invalidateCache } from '../hooks/useStaleData';
 
 function timeAgo(dateStr) {
   if (!dateStr) return '';
@@ -43,28 +44,20 @@ function tabToStatus(tab) {
   return tab.toLowerCase().replace(/ /g, '_');
 }
 
+const ORDERS_URL = '/api/orders';
+
 export default function Orders() {
-  const [orders, setOrders] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('All');
   const [updatingId, setUpdatingId] = useState(null);
   const [search, setSearch] = useState('');
 
-  const fetchOrders = useCallback(() => {
-    fetch('/api/orders', { credentials: 'include' })
-      .then((r) => r.json())
-      .then((data) => setOrders(Array.isArray(data) ? data : []))
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
+  const { data: rawOrders, revalidating, revalidate } = useStaleData(ORDERS_URL, {
+    transform: (d) => (Array.isArray(d) ? d : []),
+  });
 
-  useEffect(() => {
-    fetchOrders();
-    const interval = setInterval(fetchOrders, 30000);
-    return () => clearInterval(interval);
-  }, [fetchOrders]);
+  const orders = rawOrders ?? [];
 
-  const updateStatus = async (orderId, newStatus) => {
+  const updateStatus = useCallback(async (orderId, newStatus) => {
     setUpdatingId(orderId);
     try {
       await fetch(`/api/orders/${orderId}/status`, {
@@ -73,13 +66,15 @@ export default function Orders() {
         credentials: 'include',
         body: JSON.stringify({ status: newStatus }),
       });
-      fetchOrders();
+      // Invalidate cache so next revalidate returns fresh data
+      invalidateCache(ORDERS_URL);
+      revalidate();
     } catch {
       // silent
     } finally {
       setUpdatingId(null);
     }
-  };
+  }, [revalidate]);
 
   const filtered = orders.filter((o) => {
     const matchesTab = activeTab === 'All' || (o.status || 'preparing').toLowerCase() === tabToStatus(activeTab);
@@ -96,7 +91,8 @@ export default function Orders() {
     );
   });
 
-  if (loading) {
+  // Only show spinner on absolute first load (no stale data yet)
+  if (!rawOrders && revalidating) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="w-8 h-8 border-4 border-brand-500 border-t-transparent rounded-full animate-spin-slow" />
@@ -107,7 +103,12 @@ export default function Orders() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <h2 className="text-2xl font-bold text-gray-900">Orders</h2>
+        <div className="flex items-center gap-2">
+          <h2 className="text-2xl font-bold text-gray-900">Orders</h2>
+          {revalidating && (
+            <span className="w-2 h-2 rounded-full bg-brand-400 animate-pulse" title="Refreshing..." />
+          )}
+        </div>
         <div className="relative">
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
           <input
