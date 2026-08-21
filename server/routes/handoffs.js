@@ -12,11 +12,12 @@ router.get('/', async (req, res) => {
     }
 
     const headers = rows[0];
-    const data = rows.slice(1).map((row) => {
+    const data = rows.slice(1).map((row, index) => {
       const obj = {};
       headers.forEach((h, i) => {
         obj[h] = row[i] || '';
       });
+      obj._rowIndex = index; // 0-based data row index (excluding header)
       return obj;
     });
 
@@ -30,40 +31,30 @@ router.get('/', async (req, res) => {
   }
 });
 
-// PATCH /api/handoffs/:phone/resolve - mark handoff as resolved
-router.patch('/:phone/resolve', async (req, res) => {
+// PATCH /api/handoffs/:rowIndex/resolve - mark specific handoff as resolved
+router.patch('/:rowIndex/resolve', async (req, res) => {
   try {
-    const { phone } = req.params;
+    const { rowIndex } = req.params;
+    const idx = parseInt(rowIndex, 10);
 
     const rows = await getSheetData('Handoffs', 'A:F');
-    if (rows.length < 2) {
+    if (rows.length < 2 || isNaN(idx) || idx < 0 || idx >= rows.length - 1) {
       return res.status(404).json({ error: 'Handoff not found' });
     }
 
     const headers = rows[0];
-    const phoneCol = headers.indexOf('phone');
     const statusCol = headers.indexOf('status');
 
-    if (phoneCol === -1 || statusCol === -1) {
+    if (statusCol === -1) {
       return res.status(500).json({ error: 'Column not found in sheet' });
     }
 
-    // Find all rows matching this phone and update status
-    let updated = 0;
-    for (let i = 1; i < rows.length; i++) {
-      if (rows[i][phoneCol] === phone && rows[i][statusCol] !== 'resolved') {
-        const colLetter = String.fromCharCode(65 + statusCol);
-        const cellRange = `${colLetter}${i + 1}`;
-        await updateCell('Handoffs', cellRange, 'resolved');
-        updated++;
-      }
-    }
+    // Update status in sheet. Sheet row is idx + 2 (1-based, +1 for headers)
+    const colLetter = String.fromCharCode(65 + statusCol);
+    const cellRange = `${colLetter}${idx + 2}`;
+    await updateCell('Handoffs', cellRange, 'resolved');
 
-    if (updated === 0) {
-      return res.status(404).json({ error: 'No unresolved handoffs found for this phone' });
-    }
-
-    res.json({ success: true, updated });
+    res.json({ success: true, rowIndex: idx });
   } catch (err) {
     console.error('Error resolving handoff:', err.message);
     res.status(500).json({ error: 'Failed to resolve handoff' });

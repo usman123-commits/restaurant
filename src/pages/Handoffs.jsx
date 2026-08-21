@@ -23,15 +23,15 @@ export default function Handoffs() {
   const { data: rawData, revalidating, revalidate } = useStaleData(HANDOFFS_URL);
   const handoffs = Array.isArray(rawData) ? rawData : (rawData?.handoffs || []);
 
-  const resolve = async (phone) => {
-    setResolving(phone);
+  const resolve = async (rowIndex) => {
+    setResolving(rowIndex);
     try {
-      await fetch(`/api/handoffs/${encodeURIComponent(phone)}/resolve`, {
+      await fetch(`/api/handoffs/${rowIndex}/resolve`, {
         method: 'PATCH',
         credentials: 'include',
       });
       invalidateCache(HANDOFFS_URL);
-      revalidate();
+      await revalidate();
     } catch { /* silent */ }
     setResolving(null);
   };
@@ -73,10 +73,10 @@ export default function Handoffs() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
         {handoffs.map((h) => {
-          const isActive = h.status === 'active' || h.status === 'pending' || !h.resolvedAt;
+          const isActive = h.status !== 'resolved';
           return (
             <div
-              key={h.phone || h.id}
+              key={h._rowIndex}
               className={`bg-white rounded-xl shadow-sm p-5 animate-fade-in ${
                 isActive ? 'ring-2 ring-brand-200' : ''
               }`}
@@ -119,12 +119,12 @@ export default function Handoffs() {
                 </span>
                 {isActive && (
                   <button
-                    onClick={() => resolve(h.phone)}
-                    disabled={resolving === h.phone}
+                    onClick={() => resolve(h._rowIndex)}
+                    disabled={resolving === h._rowIndex}
                     className="flex items-center gap-1.5 px-3 py-1.5 bg-green-500 hover:bg-green-600 text-white rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
                   >
                     <CheckCircle size={14} />
-                    {resolving === h.phone ? 'Resolving...' : 'Resolve'}
+                    {resolving === h._rowIndex ? 'Resolving...' : 'Resolve'}
                   </button>
                 )}
               </div>
