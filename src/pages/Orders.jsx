@@ -32,28 +32,10 @@ function parseItems(items) {
 }
 
 const statusConfig = {
-  preparing: { bg: 'bg-yellow-100 text-yellow-700', label: 'Preparing' },
-  on_the_way: { bg: 'bg-blue-100 text-blue-700', label: 'On the Way' },
-  delivered: { bg: 'bg-green-100 text-green-700', label: 'Delivered' },
-  cancelled: { bg: 'bg-red-100 text-red-700', label: 'Cancelled' },
-};
-
-const ALLOWED_TRANSITIONS = {
-  preparing: [
-    { value: 'preparing', label: 'Preparing' },
-    { value: 'on_the_way', label: 'On the Way' },
-    { value: 'cancelled', label: 'Cancelled' },
-  ],
-  on_the_way: [
-    { value: 'on_the_way', label: 'On the Way' },
-    { value: 'delivered', label: 'Delivered' },
-  ],
-  delivered: [
-    { value: 'delivered', label: 'Delivered' },
-  ],
-  cancelled: [
-    { value: 'cancelled', label: 'Cancelled' },
-  ],
+  preparing: { bg: 'bg-yellow-100 text-yellow-800 border-yellow-200', label: 'Preparing' },
+  on_the_way: { bg: 'bg-blue-100 text-blue-800 border-blue-200', label: 'On the Way' },
+  delivered: { bg: 'bg-green-100 text-green-800 border-green-200', label: 'Delivered' },
+  cancelled: { bg: 'bg-red-100 text-red-800 border-red-200', label: 'Cancelled' },
 };
 
 const tabs = ['All', 'Preparing', 'On the Way', 'Delivered', 'Cancelled'];
@@ -246,32 +228,49 @@ export default function Orders() {
                 <div className="mt-3 pt-3 border-t border-gray-100">
                   {(() => {
                     const currentStatus = (order.status || 'preparing').toLowerCase();
-                    const availableOptions = ALLOWED_TRANSITIONS[currentStatus] || [
-                      { value: currentStatus, label: statusConfig[currentStatus]?.label || currentStatus }
-                    ];
                     const isFinal = currentStatus === 'delivered' || currentStatus === 'cancelled';
 
                     return (
-                      <div className="relative">
+                      <div
+                        className="relative"
+                        title={isFinal ? 'Order is in a final state and cannot be changed' : 'Change order status'}
+                      >
                         <select
                           value={currentStatus}
                           onChange={(e) => updateStatus(order.orderId, e.target.value)}
                           disabled={isFinal || updatingId === order.orderId}
-                          className={`w-full appearance-none rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 transition-colors ${
-                            isFinal
-                              ? 'bg-gray-100 border border-gray-200 text-gray-500 cursor-not-allowed'
-                              : 'bg-gray-50 border border-gray-200 text-gray-700 hover:bg-white cursor-pointer'
-                          } disabled:opacity-75`}
+                          className="w-full appearance-none bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-500 transition-colors disabled:opacity-60"
                         >
-                          {availableOptions.map((opt) => (
-                            <option key={opt.value} value={opt.value}>
-                              {opt.label}
-                            </option>
-                          ))}
+                          <option
+                            value="preparing"
+                            disabled={currentStatus !== 'preparing'}
+                            className={currentStatus !== 'preparing' ? 'text-gray-400' : 'text-gray-900'}
+                          >
+                            Preparing {currentStatus !== 'preparing' ? '(Cannot revert)' : ''}
+                          </option>
+                          <option
+                            value="on_the_way"
+                            disabled={currentStatus === 'delivered' || currentStatus === 'cancelled'}
+                            className={currentStatus === 'delivered' || currentStatus === 'cancelled' ? 'text-gray-400' : 'text-gray-900'}
+                          >
+                            On the Way {currentStatus === 'delivered' || currentStatus === 'cancelled' ? '(Cannot revert)' : ''}
+                          </option>
+                          <option
+                            value="delivered"
+                            disabled={currentStatus === 'cancelled'}
+                            className={currentStatus === 'cancelled' ? 'text-gray-400' : 'text-gray-900'}
+                          >
+                            Delivered {currentStatus === 'cancelled' ? '(Order cancelled)' : ''}
+                          </option>
+                          <option
+                            value="cancelled"
+                            disabled={currentStatus !== 'preparing' && currentStatus !== 'cancelled'}
+                            className={currentStatus !== 'preparing' && currentStatus !== 'cancelled' ? 'text-gray-400' : 'text-gray-900'}
+                          >
+                            Cancelled {currentStatus !== 'preparing' && currentStatus !== 'cancelled' ? '(Only during preparing)' : ''}
+                          </option>
                         </select>
-                        {!isFinal && (
-                          <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-                        )}
+                        <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
                       </div>
                     );
                   })()}

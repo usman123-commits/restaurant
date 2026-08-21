@@ -19,6 +19,7 @@ let TAB_NAMES = {
   Conversations: 'Conversations',
   Orders: 'Orders',
   Handoffs: 'Handoffs',
+  Spend: 'Spend',
   BotConfig: 'BotConfig',
 };
 
@@ -102,6 +103,7 @@ export async function initAuth() {
       else if (props.sheetId === 1463559692 || props.sheetId === 244215354 || titleLower === 'conversations') TAB_NAMES.Conversations = props.title;
       else if (props.sheetId === 1932049043 || props.sheetId === 1195076550 || titleLower === 'orders') TAB_NAMES.Orders = props.title;
       else if (props.sheetId === 1111907072 || props.sheetId === 578724165 || titleLower === 'handoffs') TAB_NAMES.Handoffs = props.title;
+      else if (props.sheetId === 1394307950 || titleLower === 'spend' || titleLower === 'spends' || titleLower === 'expenses') TAB_NAMES.Spend = props.title;
       else if (props.sheetId === 1039937095 || titleLower === 'botconfig') TAB_NAMES.BotConfig = props.title;
     }
     console.log('Detected tab names:', TAB_NAMES);

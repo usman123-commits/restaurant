@@ -13,6 +13,7 @@ import menuRoutes from './routes/menu.js';
 import analyticsRoutes from './routes/analytics.js';
 import handoffsRoutes from './routes/handoffs.js';
 import settingsRoutes from './routes/settings.js';
+import spendRoutes from './routes/spend.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -36,6 +37,7 @@ app.use('/api/menu', menuRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/handoffs', handoffsRoutes);
 app.use('/api/settings', settingsRoutes);
+app.use('/api/spend', spendRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

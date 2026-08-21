@@ -11,6 +11,7 @@ import menuRoutes from '../server/routes/menu.js';
 import analyticsRoutes from '../server/routes/analytics.js';
 import handoffsRoutes from '../server/routes/handoffs.js';
 import settingsRoutes from '../server/routes/settings.js';
+import spendRoutes from '../server/routes/spend.js';
 
 const app = express();
 
@@ -25,6 +26,7 @@ app.use('/api/menu', menuRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/handoffs', handoffsRoutes);
 app.use('/api/settings', settingsRoutes);
+app.use('/api/spend', spendRoutes);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok' });

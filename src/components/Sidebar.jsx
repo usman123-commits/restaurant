@@ -5,6 +5,7 @@ import {
   MessageSquare,
   UtensilsCrossed,
   PhoneForwarded,
+  Wallet,
   Settings,
   LogOut,
   X,
@@ -16,6 +17,7 @@ const links = [
   { to: '/conversations', label: 'Conversations', icon: MessageSquare },
   { to: '/menu', label: 'Menu', icon: UtensilsCrossed },
   { to: '/handoffs', label: 'Handoffs', icon: PhoneForwarded },
+  { to: '/spend', label: 'Spend', icon: Wallet },
   { to: '/settings', label: 'Settings', icon: Settings },
 ];
 

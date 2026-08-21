@@ -8,6 +8,7 @@ import Conversations from './pages/Conversations';
 import ConversationDetail from './pages/ConversationDetail';
 import MenuManager from './pages/MenuManager';
 import Handoffs from './pages/Handoffs';
+import Spend from './pages/Spend';
 import Settings from './pages/Settings';
 
 export default function App() {
@@ -64,6 +65,7 @@ export default function App() {
             <Route path="/conversations/:phone" element={<ConversationDetail />} />
             <Route path="/menu" element={<MenuManager />} />
             <Route path="/handoffs" element={<Handoffs />} />
+            <Route path="/spend" element={<Spend />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
