@@ -38,6 +38,24 @@ const statusConfig = {
   cancelled: { bg: 'bg-red-100 text-red-700', label: 'Cancelled' },
 };
 
+const ALLOWED_TRANSITIONS = {
+  preparing: [
+    { value: 'preparing', label: 'Preparing' },
+    { value: 'on_the_way', label: 'On the Way' },
+    { value: 'cancelled', label: 'Cancelled' },
+  ],
+  on_the_way: [
+    { value: 'on_the_way', label: 'On the Way' },
+    { value: 'delivered', label: 'Delivered' },
+  ],
+  delivered: [
+    { value: 'delivered', label: 'Delivered' },
+  ],
+  cancelled: [
+    { value: 'cancelled', label: 'Cancelled' },
+  ],
+};
+
 const tabs = ['All', 'Preparing', 'On the Way', 'Delivered', 'Cancelled'];
 
 function tabToStatus(tab) {
@@ -226,20 +244,37 @@ export default function Orders() {
 
                 {/* Status update */}
                 <div className="mt-3 pt-3 border-t border-gray-100">
-                  <div className="relative">
-                    <select
-                      value={(order.status || 'preparing').toLowerCase()}
-                      onChange={(e) => updateStatus(order.orderId, e.target.value)}
-                      disabled={updatingId === order.orderId}
-                      className="w-full appearance-none bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-500 disabled:opacity-50"
-                    >
-                      <option value="preparing">Preparing</option>
-                      <option value="on_the_way">On the Way</option>
-                      <option value="delivered">Delivered</option>
-                      <option value="cancelled">Cancelled</option>
-                    </select>
-                    <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-                  </div>
+                  {(() => {
+                    const currentStatus = (order.status || 'preparing').toLowerCase();
+                    const availableOptions = ALLOWED_TRANSITIONS[currentStatus] || [
+                      { value: currentStatus, label: statusConfig[currentStatus]?.label || currentStatus }
+                    ];
+                    const isFinal = currentStatus === 'delivered' || currentStatus === 'cancelled';
+
+                    return (
+                      <div className="relative">
+                        <select
+                          value={currentStatus}
+                          onChange={(e) => updateStatus(order.orderId, e.target.value)}
+                          disabled={isFinal || updatingId === order.orderId}
+                          className={`w-full appearance-none rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 transition-colors ${
+                            isFinal
+                              ? 'bg-gray-100 border border-gray-200 text-gray-500 cursor-not-allowed'
+                              : 'bg-gray-50 border border-gray-200 text-gray-700 hover:bg-white cursor-pointer'
+                          } disabled:opacity-75`}
+                        >
+                          {availableOptions.map((opt) => (
+                            <option key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </option>
+                          ))}
+                        </select>
+                        {!isFinal && (
+                          <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
             );

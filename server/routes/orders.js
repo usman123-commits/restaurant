@@ -67,8 +67,24 @@ router.patch('/:orderId/status', async (req, res) => {
       }
     }
 
-    if (targetRowIndex === -1) {
-      return res.status(404).json({ error: 'Order not found' });
+    // Validate status transition rule:
+    // preparing -> on_the_way -> delivered (forward only, no rollback)
+    // cancelled allowed only when currently preparing
+    const currentStatus = (rows[targetRowIndex][statusCol] || 'preparing').toLowerCase();
+    const targetStatus = status.toLowerCase();
+
+    const allowedTransitions = {
+      preparing: ['preparing', 'on_the_way', 'cancelled'],
+      on_the_way: ['on_the_way', 'delivered'],
+      delivered: ['delivered'],
+      cancelled: ['cancelled'],
+    };
+
+    const allowed = allowedTransitions[currentStatus] || ['preparing', 'on_the_way', 'delivered', 'cancelled'];
+    if (!allowed.includes(targetStatus)) {
+      return res.status(400).json({
+        error: `Invalid status transition from "${currentStatus}" to "${targetStatus}".`,
+      });
     }
 
     // Update the status cell. Sheet row is targetRowIndex + 1 (1-based)
