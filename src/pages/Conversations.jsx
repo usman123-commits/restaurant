@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { MessageSquare, ChevronRight, Search, Loader2 } from 'lucide-react';
-import { useStaleData } from '../hooks/useStaleData';
+import { MessageSquare, ChevronRight, Search, Loader2, PhoneForwarded, Check } from 'lucide-react';
+import { useStaleData, invalidateCache } from '../hooks/useStaleData';
 
 function timeAgo(dateStr) {
   if (!dateStr) return '';
@@ -23,6 +23,8 @@ export default function Conversations() {
   const [extraPages, setExtraPages] = useState([]);
   const [loadingMore, setLoadingMore] = useState(false);
   const [search, setSearch] = useState('');
+  const [handingOffPhone, setHandingOffPhone] = useState(null);
+  const [handoffSuccess, setHandoffSuccess] = useState({});
   const navigate = useNavigate();
 
   // SWR for the first page
@@ -48,6 +50,38 @@ export default function Conversations() {
       setExtraPages((prev) => [...prev, ...(data.conversations || [])]);
     } catch { /* silent */ }
     setLoadingMore(false);
+  };
+
+  const handleHandoff = async (conv) => {
+    setHandingOffPhone(conv.phone);
+    try {
+      const res = await fetch('/api/handoffs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          phone: conv.phone,
+          profileName: conv.profileName || conv.phone,
+          reason: 'Handed off manually by dashboard',
+          lastMessage: conv.lastMessage || 'none',
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        invalidateCache('/api/handoffs');
+        setHandoffSuccess((prev) => ({ ...prev, [conv.phone]: true }));
+        setTimeout(() => {
+          setHandoffSuccess((prev) => {
+            const next = { ...prev };
+            delete next[conv.phone];
+            return next;
+          });
+        }, 3000);
+      }
+    } catch {
+      // silent
+    }
+    setHandingOffPhone(null);
   };
 
   const filtered = conversations.filter((conv) => {
@@ -104,17 +138,17 @@ export default function Conversations() {
         <>
           <div className="bg-white rounded-xl shadow-sm divide-y divide-gray-100">
             {filtered.map((conv) => (
-              <button
+              <div
                 key={conv.phone}
                 onClick={() => navigate(`/conversations/${encodeURIComponent(conv.phone)}`)}
-                className="w-full flex items-center gap-4 px-5 py-4 hover:bg-gray-50 transition-colors text-left"
+                className="w-full flex items-center gap-4 px-5 py-4 hover:bg-gray-50 transition-colors text-left cursor-pointer group"
               >
                 <div className="w-10 h-10 rounded-full bg-brand-100 text-brand-600 flex items-center justify-center font-semibold text-sm shrink-0">
                   {(conv.profileName || conv.phone || '?').charAt(0).toUpperCase()}
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between">
-                    <p className="font-medium text-gray-900 truncate">
+                    <p className="font-medium text-gray-900 truncate group-hover:text-brand-600 transition-colors">
                       {conv.profileName || conv.phone}
                     </p>
                     <span className="text-xs text-gray-400 shrink-0 ml-2">
@@ -126,6 +160,33 @@ export default function Conversations() {
                   </p>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
+                  {/* Manual Handoff Button */}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleHandoff(conv);
+                    }}
+                    disabled={handingOffPhone === conv.phone}
+                    className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors disabled:opacity-50 ${
+                      handoffSuccess[conv.phone]
+                        ? 'bg-green-50 text-green-700 border-green-200'
+                        : 'bg-white text-gray-700 border-gray-200 hover:bg-brand-50 hover:text-brand-600 hover:border-brand-200'
+                    }`}
+                    title="Hand off this conversation to staff"
+                  >
+                    {handoffSuccess[conv.phone] ? (
+                      <>
+                        <Check size={12} className="text-green-600" />
+                        <span>Handed Off</span>
+                      </>
+                    ) : (
+                      <>
+                        <PhoneForwarded size={12} className={handingOffPhone === conv.phone ? 'animate-pulse' : ''} />
+                        <span>{handingOffPhone === conv.phone ? 'Handing off...' : 'Hand Off'}</span>
+                      </>
+                    )}
+                  </button>
+
                   {conv.messageCount > 0 && (
                     <span className="bg-gray-100 text-gray-600 text-xs font-medium px-2 py-0.5 rounded-full">
                       {conv.messageCount}
@@ -133,7 +194,7 @@ export default function Conversations() {
                   )}
                   <ChevronRight size={16} className="text-gray-300" />
                 </div>
-              </button>
+              </div>
             ))}
           </div>
 

@@ -97,10 +97,12 @@ export async function initAuth() {
     const sheetList = meta.data.sheets || [];
     for (const s of sheetList) {
       const props = s.properties;
-      if (props.sheetId === 0) TAB_NAMES.Menu = props.title;
-      else if (props.sheetId === 1463559692) TAB_NAMES.Conversations = props.title;
-      else if (props.sheetId === 1932049043) TAB_NAMES.Orders = props.title;
-      else if (props.sheetId === 1111907072) TAB_NAMES.Handoffs = props.title;
+      const titleLower = props.title.toLowerCase();
+      if (props.sheetId === 0 || titleLower === 'menu' || titleLower === 'sheet1') TAB_NAMES.Menu = props.title;
+      else if (props.sheetId === 1463559692 || props.sheetId === 244215354 || titleLower === 'conversations') TAB_NAMES.Conversations = props.title;
+      else if (props.sheetId === 1932049043 || props.sheetId === 1195076550 || titleLower === 'orders') TAB_NAMES.Orders = props.title;
+      else if (props.sheetId === 1111907072 || props.sheetId === 578724165 || titleLower === 'handoffs') TAB_NAMES.Handoffs = props.title;
+      else if (props.sheetId === 1039937095 || titleLower === 'botconfig') TAB_NAMES.BotConfig = props.title;
     }
     console.log('Detected tab names:', TAB_NAMES);
   } catch (err) {

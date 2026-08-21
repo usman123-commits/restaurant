@@ -1,12 +1,12 @@
 import { Router } from 'express';
-import { getSheetData, updateCell } from '../sheets.js';
+import { getSheetData, updateCell, appendRow } from '../sheets.js';
 
 const router = Router();
 
 // GET /api/handoffs - all handoffs
 router.get('/', async (req, res) => {
   try {
-    const rows = await getSheetData('Handoffs', 'A:F');
+    const rows = await getSheetData('Handoffs', 'A:I');
     if (rows.length < 2) {
       return res.json([]);
     }
@@ -31,13 +31,60 @@ router.get('/', async (req, res) => {
   }
 });
 
+// POST /api/handoffs - manually handoff a conversation
+router.post('/', async (req, res) => {
+  try {
+    const {
+      phone,
+      profileName = '',
+      reason = 'Handed off manually by dashboard',
+      lastMessage = 'none',
+    } = req.body;
+
+    if (!phone) {
+      return res.status(400).json({ error: 'Phone number is required' });
+    }
+
+    const timestamp = new Date().toISOString();
+    const rowValues = [
+      timestamp,
+      phone,
+      profileName,
+      reason || 'Handed off manually by dashboard',
+      lastMessage || 'none',
+      'active',
+      '',
+      '',
+      '',
+    ];
+
+    await appendRow('Handoffs', rowValues);
+
+    res.json({
+      success: true,
+      message: 'Handoff created successfully',
+      handoff: {
+        timestamp,
+        phone,
+        profileName,
+        reason: reason || 'Handed off manually by dashboard',
+        lastMessage: lastMessage || 'none',
+        status: 'active',
+      },
+    });
+  } catch (err) {
+    console.error('Error creating manual handoff:', err.message);
+    res.status(500).json({ error: 'Failed to create handoff' });
+  }
+});
+
 // PATCH /api/handoffs/:rowIndex/resolve - mark specific handoff as resolved
 router.patch('/:rowIndex/resolve', async (req, res) => {
   try {
     const { rowIndex } = req.params;
     const idx = parseInt(rowIndex, 10);
 
-    const rows = await getSheetData('Handoffs', 'A:F');
+    const rows = await getSheetData('Handoffs', 'A:I');
     if (rows.length < 2 || isNaN(idx) || idx < 0 || idx >= rows.length - 1) {
       return res.status(404).json({ error: 'Handoff not found' });
     }

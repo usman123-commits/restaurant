@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, MessageSquare, Loader2 } from 'lucide-react';
-import { useStaleData } from '../hooks/useStaleData';
+import { ArrowLeft, MessageSquare, Loader2, PhoneForwarded, Check } from 'lucide-react';
+import { useStaleData, invalidateCache } from '../hooks/useStaleData';
 
 function formatTime(dateStr) {
   if (!dateStr) return '';
@@ -22,11 +22,14 @@ export default function ConversationDetail() {
   const navigate = useNavigate();
   const [extraData, setExtraData] = useState(null);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [handingOff, setHandingOff] = useState(false);
+  const [handoffSuccess, setHandoffSuccess] = useState(false);
   const bottomRef = useRef(null);
 
   // Clear extraData when the phone changes
   useEffect(() => {
     setExtraData(null);
+    setHandoffSuccess(false);
   }, [phone]);
 
   const { data: rawData, revalidating } = useStaleData(
@@ -58,6 +61,36 @@ export default function ConversationDetail() {
     setLoadingMore(false);
   };
 
+  const handleHandoff = async () => {
+    setHandingOff(true);
+    try {
+      const lastMsg = messages.length > 0
+        ? (messages[messages.length - 1].body || messages[messages.length - 1].message || 'none')
+        : 'none';
+
+      const res = await fetch('/api/handoffs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          phone,
+          profileName: profileName || phone,
+          reason: 'Handed off manually by dashboard',
+          lastMessage: lastMsg,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        invalidateCache('/api/handoffs');
+        setHandoffSuccess(true);
+        setTimeout(() => setHandoffSuccess(false), 3000);
+      }
+    } catch {
+      // silent
+    }
+    setHandingOff(false);
+  };
+
   const hasMore = total > messages.length;
 
   return (
@@ -79,6 +112,30 @@ export default function ConversationDetail() {
           </div>
           <p className="text-sm text-gray-500">{phone} -- {total} messages</p>
         </div>
+
+        {/* Manual Handoff Button in Detail */}
+        <button
+          onClick={handleHandoff}
+          disabled={handingOff}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors disabled:opacity-50 ${
+            handoffSuccess
+              ? 'bg-green-50 text-green-700 border-green-200'
+              : 'bg-white text-gray-700 border-gray-200 hover:bg-brand-50 hover:text-brand-600 hover:border-brand-200'
+          }`}
+          title="Hand off this conversation to staff"
+        >
+          {handoffSuccess ? (
+            <>
+              <Check size={14} className="text-green-600" />
+              <span>Handed Off</span>
+            </>
+          ) : (
+            <>
+              <PhoneForwarded size={14} className={handingOff ? 'animate-pulse' : ''} />
+              <span>{handingOff ? 'Handing off...' : 'Hand Off'}</span>
+            </>
+          )}
+        </button>
       </div>
 
       {/* Chat area */}
