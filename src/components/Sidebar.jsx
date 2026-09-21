@@ -18,7 +18,6 @@ const links = [
   { to: '/menu', label: 'Menu', icon: UtensilsCrossed },
   { to: '/handoffs', label: 'Handoffs', icon: PhoneForwarded },
   { to: '/spend', label: 'Spend', icon: Wallet },
-  { to: '/settings', label: 'Settings', icon: Settings },
 ];
 
 export default function Sidebar({ open, onClose, onLogout }) {

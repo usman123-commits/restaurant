@@ -6,9 +6,10 @@ const router = Router();
 // GET /api/analytics
 router.get('/', async (req, res) => {
   try {
-    const [orderRows, convRows] = await Promise.all([
+    const [orderRows, convRows, menuRows] = await Promise.all([
       getSheetData('Orders', 'A:I'),
       getSheetData('Conversations', 'A:F'),
+      getSheetData('Menu', 'A:E').catch(() => []),
     ]);
 
     // Parse orders
@@ -19,6 +20,19 @@ router.get('/', async (req, res) => {
         obj[h] = row[i] || '';
       });
       return obj;
+    });
+
+    // Parse menu
+    const menuHeaders = menuRows[0] || [];
+    const menuMap = {};
+    menuRows.slice(1).forEach((row) => {
+      const obj = {};
+      menuHeaders.forEach((h, i) => {
+        obj[h] = row[i] || '';
+      });
+      if (obj.item) {
+        menuMap[obj.item.toLowerCase().trim()] = obj;
+      }
     });
 
     // Parse conversations
@@ -47,20 +61,35 @@ router.get('/', async (req, res) => {
     const todayOrderCount = todayOrders.length;
     const todayRevenue = todayOrders.reduce((sum, o) => sum + (parseFloat(o.totalAmount) || 0), 0);
 
-    // Orders by day (last 30 days)
+    // Build accurate date map for all orders
+    const dateRevenueMap = {};
+    const dateCountMap = {};
+
+    orders.forEach((o) => {
+      const d = new Date(o.timestamp);
+      if (!isNaN(d)) {
+        const dateStr = d.toISOString().split('T')[0];
+        const amt = parseFloat(o.totalAmount) || 0;
+        dateRevenueMap[dateStr] = (dateRevenueMap[dateStr] || 0) + amt;
+        dateCountMap[dateStr] = (dateCountMap[dateStr] || 0) + 1;
+      }
+    });
+
+    // Continuous 30 days sequence ending today
     const ordersByDay = [];
     for (let i = 29; i >= 0; i--) {
       const d = new Date(now);
       d.setDate(d.getDate() - i);
       const dateStr = d.toISOString().split('T')[0];
-      const dayOrders = orders.filter((o) => {
-        const od = new Date(o.timestamp);
-        return !isNaN(od) && od.toISOString().split('T')[0] === dateStr;
-      });
+      const rev = dateRevenueMap[dateStr] || 0;
+      const count = dateCountMap[dateStr] || 0;
+
       ordersByDay.push({
         date: dateStr,
-        count: dayOrders.length,
-        revenue: dayOrders.reduce((sum, o) => sum + (parseFloat(o.totalAmount) || 0), 0),
+        day: d.toLocaleDateString('en-US', { weekday: 'short' }),
+        shortDate: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+        count,
+        revenue: Math.round(rev * 100) / 100,
       });
     }
 
@@ -89,10 +118,25 @@ router.get('/', async (req, res) => {
 
     const topItems = Object.entries(itemCounts)
       .sort((a, b) => b[1] - a[1])
-      .slice(0, 10)
-      .map(([name, count]) => ({ name, count }));
+      .slice(0, 6)
+      .map(([name, count]) => {
+        const meta = menuMap[name.toLowerCase().trim()] || {};
+        return {
+          name,
+          count,
+          price: meta.price || '',
+          category: meta.category || '',
+        };
+      });
 
     // Orders by hour
+    function formatHour(h) {
+      if (h === 0) return '12AM';
+      if (h === 12) return '12PM';
+      if (h > 12) return `${h - 12}PM`;
+      return `${h}AM`;
+    }
+
     const hourCounts = Array(24).fill(0);
     for (const order of orders) {
       const d = new Date(order.timestamp);
@@ -100,7 +144,11 @@ router.get('/', async (req, res) => {
         hourCounts[d.getHours()]++;
       }
     }
-    const ordersByHour = hourCounts.map((count, hour) => ({ hour, count }));
+    const ordersByHour = hourCounts.map((count, hour) => ({
+      hour,
+      label: formatHour(hour),
+      count,
+    }));
 
     // Conversion rate
     const uniqueConvPhones = new Set(conversations.map((c) => c.phone).filter(Boolean)).size;
