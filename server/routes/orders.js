@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getSheetData, updateCell } from '../sheets.js';
+import { getSheetData, updateCell, appendRow } from '../sheets.js';
 
 const router = Router();
 
@@ -32,6 +32,80 @@ router.get('/', async (req, res) => {
   } catch (err) {
     console.error('Error fetching orders:', err.message);
     res.status(500).json({ error: 'Failed to fetch orders' });
+  }
+});
+
+// POST /api/orders - manually create a new order (Dine-In, etc.)
+router.post('/', async (req, res) => {
+  try {
+    const {
+      profileName = 'Dine-In Customer',
+      phone = '',
+      items = [],
+      totalAmount,
+      deliveryAddress = 'Dine In',
+      notes = '',
+      status = 'preparing',
+    } = req.body;
+
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ error: 'Order must contain at least one item' });
+    }
+
+    // Generate unique order ID like OTTO-1785414632827
+    const orderId = `OTTO-${Date.now()}`;
+    const timestamp = new Date().toISOString();
+
+    // Calculate total amount if not provided
+    const computedTotal = totalAmount != null && !isNaN(Number(totalAmount))
+      ? Number(totalAmount)
+      : items.reduce((sum, item) => sum + (Number(item.price || 0) * (Number(item.qty) || 1)), 0);
+
+    // Format items as JSON string (matching other orders in sheet)
+    const itemsJson = JSON.stringify(
+      items.map((it) => ({
+        name: it.name || it.item || '',
+        qty: Number(it.qty) || 1,
+        price: Number(it.price) || 0,
+      }))
+    );
+
+    // Phone: if provided use it, otherwise 'not_provided'
+    const finalPhone = phone && phone.trim() ? phone.trim() : 'not_provided';
+
+    // Headers: orderId, timestamp, phone, profileName, items, totalAmount, deliveryAddress, status, notes
+    const rowValues = [
+      orderId,
+      timestamp,
+      finalPhone,
+      profileName.trim() || 'Dine-In Customer',
+      itemsJson,
+      computedTotal.toString(),
+      deliveryAddress.trim() || 'Dine In',
+      status.toLowerCase() || 'preparing',
+      notes.trim() || '',
+    ];
+
+    await appendRow('Orders', rowValues);
+
+    res.json({
+      success: true,
+      message: 'Order created successfully',
+      order: {
+        orderId,
+        timestamp,
+        phone: finalPhone,
+        profileName: profileName.trim() || 'Dine-In Customer',
+        items: itemsJson,
+        totalAmount: computedTotal.toString(),
+        deliveryAddress: deliveryAddress.trim() || 'Dine In',
+        status: status.toLowerCase() || 'preparing',
+        notes: notes.trim() || '',
+      },
+    });
+  } catch (err) {
+    console.error('Error creating order:', err.message);
+    res.status(500).json({ error: 'Failed to create order' });
   }
 });
 
@@ -69,12 +143,13 @@ router.patch('/:orderId/status', async (req, res) => {
 
     // Validate status transition rule:
     // preparing -> on_the_way -> delivered (forward only, no rollback)
+    // preparing -> delivered (direct for dine-in / direct pickup)
     // cancelled allowed only when currently preparing
     const currentStatus = (rows[targetRowIndex][statusCol] || 'preparing').toLowerCase();
     const targetStatus = status.toLowerCase();
 
     const allowedTransitions = {
-      preparing: ['preparing', 'on_the_way', 'cancelled'],
+      preparing: ['preparing', 'on_the_way', 'delivered', 'cancelled'],
       on_the_way: ['on_the_way', 'delivered'],
       delivered: ['delivered'],
       cancelled: ['cancelled'],
