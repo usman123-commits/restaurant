@@ -17,6 +17,7 @@ import {
   PackageCheck,
   Loader2,
   AlertTriangle,
+  GlassWater,
 } from 'lucide-react';
 import { useStaleData, invalidateCache } from '../hooks/useStaleData';
 
@@ -50,9 +51,37 @@ function formatFullDate(dateStr) {
   });
 }
 
+function getTodayStr() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function getYesterdayStr() {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function getSpendRecordDateStr(timestamp) {
+  if (!timestamp) return '';
+  const d = new Date(timestamp);
+  if (isNaN(d)) return '';
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 const CATEGORIES = [
   'All',
   'Ingredients',
+  'Cold Drinks',
   'Utilities',
   'Packaging',
   'Maintenance',
@@ -62,6 +91,7 @@ const CATEGORIES = [
 
 const categoryConfig = {
   Ingredients: { bg: 'bg-emerald-100 text-emerald-800 border-emerald-200', icon: PackageCheck },
+  'Cold Drinks': { bg: 'bg-cyan-100 text-cyan-800 border-cyan-200', icon: GlassWater },
   Utilities: { bg: 'bg-blue-100 text-blue-800 border-blue-200', icon: Building },
   Packaging: { bg: 'bg-amber-100 text-amber-800 border-amber-200', icon: Layers },
   Maintenance: { bg: 'bg-purple-100 text-purple-800 border-purple-200', icon: Wrench },
@@ -75,6 +105,7 @@ const SPEND_URL = '/api/spend';
 
 export default function Spend() {
   const [activeCategory, setActiveCategory] = useState('All');
+  const [selectedDate, setSelectedDate] = useState('');
   const [search, setSearch] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [expenseToDelete, setExpenseToDelete] = useState(null);
@@ -95,14 +126,22 @@ export default function Spend() {
   const todaySpend = rawSpendData?.todaySpend || 0;
   const monthSpend = rawSpendData?.monthSpend || 0;
 
-  // Filter spends by category and search term
+  // Filter spends by date, category, and search term
   const filtered = spends.filter((item) => {
+    // 1. Date Filter
+    if (selectedDate) {
+      const itemDate = getSpendRecordDateStr(item.timestamp);
+      if (itemDate !== selectedDate) return false;
+    }
+
+    // 2. Category Filter
     const matchCategory =
       activeCategory === 'All' ||
       (item.category || '').toLowerCase() === activeCategory.toLowerCase();
 
     if (!matchCategory) return false;
 
+    // 3. Search Filter
     if (!search.trim()) return true;
     const q = search.toLowerCase();
     return (
@@ -257,7 +296,7 @@ export default function Spend() {
       </div>
 
       {/* Header & Controls */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4">
         <div className="flex items-center gap-2">
           <h2 className="text-2xl font-bold text-gray-900">Spend & Expenses</h2>
           {revalidating && (
@@ -265,7 +304,67 @@ export default function Spend() {
           )}
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Date Filter Bar */}
+          <div className="flex items-center gap-1.5 bg-white p-1 rounded-xl shadow-2xs border border-gray-200 shrink-0">
+            <button
+              type="button"
+              onClick={() => setSelectedDate('')}
+              className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                selectedDate === ''
+                  ? 'bg-brand-50 text-brand-600 font-bold border border-brand-200'
+                  : 'text-gray-500 hover:text-gray-900'
+              }`}
+            >
+              All Dates
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedDate(getTodayStr())}
+              className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                selectedDate === getTodayStr()
+                  ? 'bg-brand-50 text-brand-600 font-bold border border-brand-200'
+                  : 'text-gray-500 hover:text-gray-900'
+              }`}
+            >
+              Today
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedDate(getYesterdayStr())}
+              className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                selectedDate === getYesterdayStr()
+                  ? 'bg-brand-50 text-brand-600 font-bold border border-brand-200'
+                  : 'text-gray-500 hover:text-gray-900'
+              }`}
+            >
+              Yesterday
+            </button>
+
+            <div className="h-4 w-px bg-gray-200 mx-0.5" />
+
+            <div className="flex items-center gap-1 pl-1 pr-1.5">
+              <Calendar size={14} className="text-gray-400 shrink-0" />
+              <input
+                type="date"
+                value={selectedDate}
+                onChange={(e) => setSelectedDate(e.target.value)}
+                className="text-xs text-gray-700 bg-transparent focus:outline-none cursor-pointer"
+                title="Pick a specific date"
+              />
+              {selectedDate && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedDate('')}
+                  className="text-gray-400 hover:text-gray-600 p-0.5 rounded hover:bg-gray-100 ml-0.5"
+                  title="Clear date filter"
+                >
+                  <X size={13} />
+                </button>
+              )}
+            </div>
+          </div>
+
           <div className="relative flex-1 sm:flex-initial">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <input
@@ -273,7 +372,7 @@ export default function Spend() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search expenses..."
-              className="pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm w-full sm:w-60 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent bg-white"
+              className="pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm w-full sm:w-52 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent bg-white"
             />
           </div>
 
@@ -287,27 +386,31 @@ export default function Spend() {
         </div>
       </div>
 
-      {/* Category Filter Tabs */}
-      <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
+      {/* Category Filter Grid - 2 full rows (4 columns x 2 rows = 8 items) */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 w-full">
         {CATEGORIES.map((cat) => {
           const count =
             cat === 'All'
-              ? spends.length
-              : spends.filter((s) => (s.category || '').toLowerCase() === cat.toLowerCase()).length;
+              ? spends.filter((s) => !selectedDate || getSpendRecordDateStr(s.timestamp) === selectedDate).length
+              : spends.filter((s) => {
+                  if (selectedDate && getSpendRecordDateStr(s.timestamp) !== selectedDate) return false;
+                  return (s.category || '').toLowerCase() === cat.toLowerCase();
+                }).length;
 
           return (
             <button
               key={cat}
+              type="button"
               onClick={() => setActiveCategory(cat)}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap flex items-center gap-2 ${
+              className={`px-4 py-2.5 rounded-xl text-sm transition-all flex items-center justify-center gap-2 shadow-2xs border ${
                 activeCategory === cat
-                  ? 'bg-brand-500 text-white shadow-sm'
-                  : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-100'
+                  ? 'bg-brand-500 text-white border-brand-600 shadow-xs font-semibold'
+                  : 'bg-white text-gray-700 hover:bg-gray-50 border-gray-200/80 hover:border-gray-300 font-medium'
               }`}
             >
               <span>{cat}</span>
               <span
-                className={`text-xs px-1.5 py-0.5 rounded-full ${
+                className={`text-xs px-2 py-0.5 rounded-full font-bold shrink-0 ${
                   activeCategory === cat ? 'bg-brand-600 text-white' : 'bg-gray-100 text-gray-600'
                 }`}
               >
