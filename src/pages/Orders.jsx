@@ -11,7 +11,7 @@ import {
   Trash2,
   UtensilsCrossed,
   Loader2,
-  User,
+  Calendar,
 } from 'lucide-react';
 import { useStaleData, invalidateCache } from '../hooks/useStaleData';
 
@@ -44,14 +44,42 @@ function parseItems(items) {
   }
 }
 
+function getTodayStr() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function getYesterdayStr() {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function getOrderDateStr(timestamp) {
+  if (!timestamp) return '';
+  const d = new Date(timestamp);
+  if (isNaN(d)) return '';
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 const statusConfig = {
   preparing: { bg: 'bg-yellow-100 text-yellow-800 border-yellow-200', label: 'Preparing' },
   on_the_way: { bg: 'bg-blue-100 text-blue-800 border-blue-200', label: 'On the Way' },
   delivered: { bg: 'bg-green-100 text-green-800 border-green-200', label: 'Delivered' },
+  served: { bg: 'bg-green-100 text-green-800 border-green-200', label: 'Served' },
   cancelled: { bg: 'bg-red-100 text-red-800 border-red-200', label: 'Cancelled' },
 };
 
-const tabs = ['All', 'Dine In', 'Preparing', 'On the Way', 'Delivered', 'Cancelled'];
+const tabs = ['All', 'Dine In', 'Preparing', 'On the Way', 'Delivered', 'Served', 'Cancelled'];
 
 function isDineIn(order) {
   const addr = (order?.deliveryAddress || '').toLowerCase();
@@ -60,14 +88,36 @@ function isDineIn(order) {
   return addr.includes('dine in') || addr.includes('dine-in') || phone.includes('dine') || name.includes('dine-in');
 }
 
+function isServed(order) {
+  const status = (order?.status || '').toLowerCase();
+  return status === 'served' || (isDineIn(order) && status === 'delivered');
+}
+
+function isDelivered(order) {
+  const status = (order?.status || '').toLowerCase();
+  return status === 'delivered' && !isDineIn(order);
+}
+
 function tabToStatus(tab) {
   return tab.toLowerCase().replace(/ /g, '_');
+}
+
+function matchesTabFilter(order, tab) {
+  if (tab === 'All') return true;
+  if (tab === 'Dine In') return isDineIn(order);
+  if (tab === 'Served') return isServed(order);
+  if (tab === 'Delivered') return isDelivered(order);
+  if (tab === 'Preparing') return (order?.status || 'preparing').toLowerCase() === 'preparing';
+  if (tab === 'On the Way') return (order?.status || '').toLowerCase() === 'on_the_way';
+  if (tab === 'Cancelled') return (order?.status || '').toLowerCase() === 'cancelled';
+  return (order?.status || 'preparing').toLowerCase() === tabToStatus(tab);
 }
 
 const ORDERS_URL = '/api/orders';
 
 export default function Orders() {
   const [activeTab, setActiveTab] = useState('All');
+  const [selectedDate, setSelectedDate] = useState('');
   const [updatingId, setUpdatingId] = useState(null);
   const [search, setSearch] = useState('');
 
@@ -75,7 +125,6 @@ export default function Orders() {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [profileName, setProfileName] = useState('Dine-In Customer');
   const [phone, setPhone] = useState('');
-  const [tableNumber, setTableNumber] = useState('');
   const [notes, setNotes] = useState('');
   const [orderItems, setOrderItems] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState('All');
@@ -174,7 +223,6 @@ export default function Orders() {
     setFormError('');
 
     try {
-      const tableText = tableNumber.trim() ? `Table ${tableNumber.trim()}` : '';
       const finalPhone = phone.trim() ? phone.trim() : 'not_provided';
       const res = await fetch('/api/orders', {
         method: 'POST',
@@ -183,7 +231,7 @@ export default function Orders() {
         body: JSON.stringify({
           profileName: profileName.trim() || 'Dine-In Customer',
           phone: finalPhone,
-          deliveryAddress: tableText ? `Dine In (${tableText})` : 'Dine In',
+          deliveryAddress: 'Dine In',
           items: orderItems,
           totalAmount: orderTotal,
           notes: notes.trim(),
@@ -200,7 +248,6 @@ export default function Orders() {
         // Reset form
         setProfileName('Dine-In Customer');
         setPhone('');
-        setTableNumber('');
         setNotes('');
         setOrderItems([]);
         setSelectedItemName('');
@@ -216,12 +263,16 @@ export default function Orders() {
   };
 
   const filtered = orders.filter((o) => {
-    if (activeTab === 'Dine In') {
-      if (!isDineIn(o)) return false;
-    } else if (activeTab !== 'All') {
-      if ((o.status || 'preparing').toLowerCase() !== tabToStatus(activeTab)) return false;
+    // 1. Date Filter
+    if (selectedDate) {
+      const orderDate = getOrderDateStr(o.timestamp);
+      if (orderDate !== selectedDate) return false;
     }
 
+    // 2. Tab Filter
+    if (!matchesTabFilter(o, activeTab)) return false;
+
+    // 3. Search Filter
     if (!search.trim()) return true;
     const q = search.toLowerCase();
     return (
@@ -245,6 +296,7 @@ export default function Orders() {
 
   return (
     <div className="space-y-6">
+      {/* Top Header Bar */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-2">
           <h2 className="text-2xl font-bold text-gray-900">Orders</h2>
@@ -270,7 +322,6 @@ export default function Orders() {
             onClick={() => {
               setProfileName('Dine-In Customer');
               setPhone('');
-              setTableNumber('');
               setNotes('');
               setOrderItems([]);
               setFormError('');
@@ -284,30 +335,94 @@ export default function Orders() {
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-2 flex-wrap">
-        {tabs.map((tab) => (
+      {/* Tabs and Date Filter Controls */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-white/40 p-1.5 rounded-2xl">
+        {/* Status / Type Tabs */}
+        <div className="flex gap-2 flex-wrap">
+          {tabs.map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`px-3.5 py-2 rounded-lg text-sm font-medium transition-colors ${
+                activeTab === tab
+                  ? 'bg-brand-500 text-white shadow-xs'
+                  : 'bg-white text-gray-600 hover:bg-gray-100 shadow-2xs border border-gray-100'
+              }`}
+            >
+              {tab}
+              {tab !== 'All' && (
+                <span className="ml-1.5 text-xs opacity-75">
+                  ({
+                    orders.filter((o) => {
+                      if (selectedDate && getOrderDateStr(o.timestamp) !== selectedDate) return false;
+                      return matchesTabFilter(o, tab);
+                    }).length
+                  })
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+
+        {/* Date Filter Bar */}
+        <div className="flex items-center gap-1.5 bg-white p-1 rounded-xl shadow-2xs border border-gray-200 shrink-0 self-start md:self-auto">
           <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-              activeTab === tab
-                ? 'bg-brand-500 text-white'
-                : 'bg-white text-gray-600 hover:bg-gray-100 shadow-sm'
+            type="button"
+            onClick={() => setSelectedDate('')}
+            className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+              selectedDate === ''
+                ? 'bg-brand-50 text-brand-600 font-bold border border-brand-200'
+                : 'text-gray-500 hover:text-gray-900'
             }`}
           >
-            {tab}
-            {tab !== 'All' && (
-              <span className="ml-1.5 text-xs opacity-70">
-                ({
-                  tab === 'Dine In'
-                    ? orders.filter(isDineIn).length
-                    : orders.filter((o) => (o.status || 'preparing').toLowerCase() === tabToStatus(tab)).length
-                })
-              </span>
-            )}
+            All Dates
           </button>
-        ))}
+          <button
+            type="button"
+            onClick={() => setSelectedDate(getTodayStr())}
+            className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+              selectedDate === getTodayStr()
+                ? 'bg-brand-50 text-brand-600 font-bold border border-brand-200'
+                : 'text-gray-500 hover:text-gray-900'
+            }`}
+          >
+            Today
+          </button>
+          <button
+            type="button"
+            onClick={() => setSelectedDate(getYesterdayStr())}
+            className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+              selectedDate === getYesterdayStr()
+                ? 'bg-brand-50 text-brand-600 font-bold border border-brand-200'
+                : 'text-gray-500 hover:text-gray-900'
+            }`}
+          >
+            Yesterday
+          </button>
+
+          <div className="h-4 w-px bg-gray-200 mx-0.5" />
+
+          <div className="flex items-center gap-1 pl-1 pr-1.5">
+            <Calendar size={14} className="text-gray-400 shrink-0" />
+            <input
+              type="date"
+              value={selectedDate}
+              onChange={(e) => setSelectedDate(e.target.value)}
+              className="text-xs text-gray-700 bg-transparent focus:outline-none cursor-pointer"
+              title="Pick a specific date"
+            />
+            {selectedDate && (
+              <button
+                type="button"
+                onClick={() => setSelectedDate('')}
+                className="text-gray-400 hover:text-gray-600 p-0.5 rounded hover:bg-gray-100 ml-0.5"
+                title="Clear date filter"
+              >
+                <X size={13} />
+              </button>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Orders grid */}
@@ -541,7 +656,7 @@ export default function Orders() {
                 </div>
               )}
 
-              {/* Customer & Table Info Grid */}
+              {/* Customer Info Grid */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1.5">
@@ -558,36 +673,18 @@ export default function Orders() {
 
                 <div>
                   <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1.5">
-                    Table # / Source
-                  </label>
-                  <div className="relative">
-                    <input
-                      type="text"
-                      value={tableNumber}
-                      onChange={(e) => setTableNumber(e.target.value)}
-                      placeholder="e.g. 4 or Table 4"
-                      className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent bg-gray-50/50"
-                    />
-                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] font-semibold text-brand-600 bg-brand-50 px-2 py-0.5 rounded-md border border-brand-100">
-                      Dine In
-                    </span>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1.5">
                     Phone (Optional)
                   </label>
                   <input
                     type="text"
                     value={phone}
                     onChange={(e) => setPhone(e.target.value)}
-                    placeholder="Customer phone or leave blank"
+                    placeholder="Leave blank for not_provided"
                     className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent bg-gray-50/50"
                   />
                 </div>
 
-                <div>
+                <div className="sm:col-span-2">
                   <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1.5">
                     Notes / Instructions (Optional)
                   </label>
