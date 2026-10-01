@@ -181,7 +181,25 @@ export default function MenuManager() {
         </div>
       </div>
 
-      {/* Add form */}
+      {/* Total Items Card */}
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 flex items-center justify-between w-full">
+        <div className="flex flex-col gap-1">
+          <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Total Items</span>
+          <p className="text-3xl font-black text-gray-900">{items.length}</p>
+          <p className="text-xs text-gray-400">
+            <span className="text-emerald-600 font-semibold">{items.filter((i) => isAvail(i.available)).length} available</span>
+            {' · '}
+            <span className="text-red-400 font-semibold">{items.filter((i) => !isAvail(i.available)).length} off menu</span>
+            {' · '}
+            <span className="font-medium">{categories.length} categories</span>
+          </p>
+        </div>
+        <div className="w-12 h-12 rounded-xl bg-brand-50 text-brand-500 flex items-center justify-center shrink-0">
+          <UtensilsCrossed size={22} />
+        </div>
+      </div>
+
+
       {showAdd && (
         <div className="bg-white rounded-xl shadow-sm p-5 animate-fade-in">
           <h3 className="font-semibold text-gray-900 mb-4">New Menu Item</h3>
