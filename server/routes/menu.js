@@ -1,27 +1,13 @@
 import { Router } from 'express';
-import { getSheetData, appendRow, updateRow, deleteRow } from '../sheets.js';
+import { MenuItem } from '../models.js';
 
 const router = Router();
 
 // GET /api/menu - all menu items
 router.get('/', async (req, res) => {
   try {
-    const rows = await getSheetData('Menu', 'A:Z');
-    if (rows.length < 2) {
-      return res.json([]);
-    }
-
-    const headers = rows[0];
-    const data = rows.slice(1).map((row, index) => {
-      const obj = {};
-      headers.forEach((h, i) => {
-        obj[h] = row[i] || '';
-      });
-      obj._rowIndex = index;
-      return obj;
-    });
-
-    res.json(data);
+    const items = await MenuItem.find().sort({ category: 1, item: 1 }).lean();
+    res.json(items);
   } catch (err) {
     console.error('Error fetching menu:', err.message);
     res.status(500).json({ error: 'Failed to fetch menu' });
@@ -37,72 +23,52 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ error: 'category, item, and price are required' });
     }
 
-    const rows = await getSheetData('Menu', 'A:Z');
-    const headers = rows[0] || [];
-
-    const fieldMap = {
-      category, item, price: String(price),
+    const menuItem = await MenuItem.create({
+      category,
+      item,
+      price: Number(price),
       description: description || '',
-      available: available !== undefined ? String(available) : 'TRUE',
-      image_url: image_url || '',
-    };
-
-    const values = headers.map((header) => {
-      const key = header.toLowerCase().replace(/\s+/g, '_');
-      if (key in fieldMap) return fieldMap[key];
-      if (header in fieldMap) return fieldMap[header];
-      return '';
+      available:   available !== undefined ? Boolean(available) : true,
+      image_url:   image_url || '',
     });
 
-    await appendRow('Menu', values);
-    res.status(201).json({ success: true });
+    res.status(201).json({ success: true, menuItem });
   } catch (err) {
     console.error('Error adding menu item:', err.message);
     res.status(500).json({ error: 'Failed to add menu item' });
   }
 });
 
-// PATCH /api/menu/:rowIndex - update menu item at row
-router.patch('/:rowIndex', async (req, res) => {
+// PATCH /api/menu/:id - update menu item by MongoDB _id
+router.patch('/:id', async (req, res) => {
   try {
-    const rowIndex = parseInt(req.params.rowIndex, 10);
-    if (isNaN(rowIndex) || rowIndex < 0) {
-      return res.status(400).json({ error: 'Invalid row index' });
-    }
-
-    const rows = await getSheetData('Menu', 'A:Z');
-    if (rowIndex + 1 >= rows.length) {
-      return res.status(404).json({ error: 'Row not found' });
-    }
-
-    const headers = rows[0];
-    const currentRow = rows[rowIndex + 1];
-
+    const { id } = req.params;
     const updates = req.body;
-    const updatedValues = headers.map((header, i) => {
-      const key = header.toLowerCase().replace(/\s+/g, '_');
-      if (key in updates) return String(updates[key]);
-      if (updates[header] !== undefined) return String(updates[header]);
-      return currentRow[i] || '';
-    });
 
-    await updateRow('Menu', rowIndex, updatedValues);
-    res.json({ success: true });
+    // Coerce types properly
+    if (updates.price !== undefined) updates.price = Number(updates.price);
+    if (updates.available !== undefined) updates.available = updates.available === 'true' || updates.available === true;
+
+    const menuItem = await MenuItem.findByIdAndUpdate(id, updates, { new: true });
+    if (!menuItem) {
+      return res.status(404).json({ error: 'Menu item not found' });
+    }
+
+    res.json({ success: true, menuItem });
   } catch (err) {
     console.error('Error updating menu item:', err.message);
     res.status(500).json({ error: 'Failed to update menu item' });
   }
 });
 
-// DELETE /api/menu/:rowIndex - delete menu item
-router.delete('/:rowIndex', async (req, res) => {
+// DELETE /api/menu/:id - delete menu item by MongoDB _id
+router.delete('/:id', async (req, res) => {
   try {
-    const rowIndex = parseInt(req.params.rowIndex, 10);
-    if (isNaN(rowIndex) || rowIndex < 0) {
-      return res.status(400).json({ error: 'Invalid row index' });
+    const { id } = req.params;
+    const result = await MenuItem.findByIdAndDelete(id);
+    if (!result) {
+      return res.status(404).json({ error: 'Menu item not found' });
     }
-
-    await deleteRow('Menu', rowIndex);
     res.json({ success: true });
   } catch (err) {
     console.error('Error deleting menu item:', err.message);

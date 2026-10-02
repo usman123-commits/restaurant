@@ -1,118 +1,69 @@
 import { Router } from 'express';
-import { getSheetData } from '../sheets.js';
+import { Order, Conversation, MenuItem } from '../models.js';
 
 const router = Router();
 
 // GET /api/analytics
 router.get('/', async (req, res) => {
   try {
-    const [orderRows, convRows, menuRows] = await Promise.all([
-      getSheetData('Orders', 'A:I'),
-      getSheetData('Conversations', 'A:F'),
-      getSheetData('Menu', 'A:E').catch(() => []),
+    const [orders, conversations, menuItems] = await Promise.all([
+      Order.find().lean(),
+      Conversation.find().lean(),
+      MenuItem.find().lean(),
     ]);
 
-    // Parse orders
-    const orderHeaders = orderRows[0] || [];
-    const orders = orderRows.slice(1).map((row) => {
-      const obj = {};
-      orderHeaders.forEach((h, i) => {
-        obj[h] = row[i] || '';
-      });
-      return obj;
-    });
-
-    // Parse menu
-    const menuHeaders = menuRows[0] || [];
+    // Build menu lookup map
     const menuMap = {};
-    menuRows.slice(1).forEach((row) => {
-      const obj = {};
-      menuHeaders.forEach((h, i) => {
-        obj[h] = row[i] || '';
-      });
-      if (obj.item) {
-        menuMap[obj.item.toLowerCase().trim()] = obj;
-      }
-    });
-
-    // Parse conversations
-    const convHeaders = convRows[0] || [];
-    const conversations = convRows.slice(1).map((row) => {
-      const obj = {};
-      convHeaders.forEach((h, i) => {
-        obj[h] = row[i] || '';
-      });
-      return obj;
-    });
+    for (const m of menuItems) {
+      menuMap[m.item.toLowerCase().trim()] = m;
+    }
 
     const now = new Date();
     const todayStr = now.toISOString().split('T')[0];
 
     // Basic stats
-    const totalOrders = orders.length;
-    const totalRevenue = orders.reduce((sum, o) => sum + (parseFloat(o.totalAmount) || 0), 0);
+    const totalOrders  = orders.length;
+    const totalRevenue = orders.reduce((sum, o) => sum + (o.totalAmount || 0), 0);
     const avgOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0;
 
     // Today's stats
-    const todayOrders = orders.filter((o) => {
-      const d = new Date(o.timestamp);
-      return !isNaN(d) && d.toISOString().split('T')[0] === todayStr;
-    });
-    const todayOrderCount = todayOrders.length;
-    const todayRevenue = todayOrders.reduce((sum, o) => sum + (parseFloat(o.totalAmount) || 0), 0);
+    const todayOrders  = orders.filter((o) => new Date(o.timestamp).toISOString().split('T')[0] === todayStr);
+    const todayRevenue = todayOrders.reduce((sum, o) => sum + (o.totalAmount || 0), 0);
 
-    // Build accurate date map for all orders
+    // Revenue & count per date
     const dateRevenueMap = {};
-    const dateCountMap = {};
-
-    orders.forEach((o) => {
+    const dateCountMap   = {};
+    for (const o of orders) {
       const d = new Date(o.timestamp);
       if (!isNaN(d)) {
         const dateStr = d.toISOString().split('T')[0];
-        const amt = parseFloat(o.totalAmount) || 0;
-        dateRevenueMap[dateStr] = (dateRevenueMap[dateStr] || 0) + amt;
-        dateCountMap[dateStr] = (dateCountMap[dateStr] || 0) + 1;
+        dateRevenueMap[dateStr] = (dateRevenueMap[dateStr] || 0) + (o.totalAmount || 0);
+        dateCountMap[dateStr]   = (dateCountMap[dateStr]   || 0) + 1;
       }
-    });
+    }
 
-    // Continuous 30 days sequence ending today
+    // Continuous 30-day series ending today
     const ordersByDay = [];
     for (let i = 29; i >= 0; i--) {
       const d = new Date(now);
       d.setDate(d.getDate() - i);
       const dateStr = d.toISOString().split('T')[0];
-      const rev = dateRevenueMap[dateStr] || 0;
-      const count = dateCountMap[dateStr] || 0;
-
       ordersByDay.push({
-        date: dateStr,
-        day: d.toLocaleDateString('en-US', { weekday: 'short' }),
+        date:      dateStr,
+        day:       d.toLocaleDateString('en-US', { weekday: 'short' }),
         shortDate: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-        count,
-        revenue: Math.round(rev * 100) / 100,
+        count:     dateCountMap[dateStr]   || 0,
+        revenue:   Math.round((dateRevenueMap[dateStr] || 0) * 100) / 100,
       });
     }
 
-    // Top items - parse the items column (JSON array or comma-separated)
+    // Top items — items is a proper array in MongoDB
     const itemCounts = {};
     for (const order of orders) {
-      const itemsStr = order.items || '';
-      let itemList = [];
-      try {
-        // Try parsing as JSON first
-        const parsed = JSON.parse(itemsStr);
-        if (Array.isArray(parsed)) {
-          itemList = parsed.map((it) => (typeof it === 'object' ? it.name || it.item || '' : String(it)));
-        }
-      } catch {
-        // Fallback: treat as comma-separated
-        itemList = itemsStr.split(',').map((s) => s.trim()).filter(Boolean);
-      }
-
-      for (const name of itemList) {
-        if (name) {
-          itemCounts[name] = (itemCounts[name] || 0) + 1;
-        }
+      const itemList = Array.isArray(order.items) ? order.items : [];
+      for (const it of itemList) {
+        const name = it.name || '';
+        if (name) itemCounts[name] = (itemCounts[name] || 0) + (it.qty || 1);
       }
     }
 
@@ -121,46 +72,35 @@ router.get('/', async (req, res) => {
       .slice(0, 6)
       .map(([name, count]) => {
         const meta = menuMap[name.toLowerCase().trim()] || {};
-        return {
-          name,
-          count,
-          price: meta.price || '',
-          category: meta.category || '',
-        };
+        return { name, count, price: meta.price || '', category: meta.category || '' };
       });
 
     // Orders by hour
     function formatHour(h) {
-      if (h === 0) return '12AM';
+      if (h === 0)  return '12AM';
       if (h === 12) return '12PM';
-      if (h > 12) return `${h - 12}PM`;
+      if (h > 12)   return `${h - 12}PM`;
       return `${h}AM`;
     }
 
     const hourCounts = Array(24).fill(0);
     for (const order of orders) {
       const d = new Date(order.timestamp);
-      if (!isNaN(d)) {
-        hourCounts[d.getHours()]++;
-      }
+      if (!isNaN(d)) hourCounts[d.getHours()]++;
     }
-    const ordersByHour = hourCounts.map((count, hour) => ({
-      hour,
-      label: formatHour(hour),
-      count,
-    }));
+    const ordersByHour = hourCounts.map((count, hour) => ({ hour, label: formatHour(hour), count }));
 
     // Conversion rate
-    const uniqueConvPhones = new Set(conversations.map((c) => c.phone).filter(Boolean)).size;
+    const uniqueConvPhones  = new Set(conversations.map((c) => c.phone).filter(Boolean)).size;
     const uniqueOrderPhones = new Set(orders.map((o) => o.phone).filter(Boolean)).size;
-    const conversionRate = uniqueConvPhones > 0 ? uniqueOrderPhones / uniqueConvPhones : 0;
+    const conversionRate    = uniqueConvPhones > 0 ? uniqueOrderPhones / uniqueConvPhones : 0;
 
     res.json({
-      todayOrders: todayOrderCount,
-      todayRevenue: Math.round(todayRevenue * 100) / 100,
+      todayOrders:    todayOrders.length,
+      todayRevenue:   Math.round(todayRevenue * 100) / 100,
       totalOrders,
-      totalRevenue: Math.round(totalRevenue * 100) / 100,
-      avgOrderValue: Math.round(avgOrderValue * 100) / 100,
+      totalRevenue:   Math.round(totalRevenue * 100) / 100,
+      avgOrderValue:  Math.round(avgOrderValue * 100) / 100,
       ordersByDay,
       topItems,
       ordersByHour,

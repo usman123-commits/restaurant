@@ -275,11 +275,15 @@ export default function Orders() {
     // 3. Search Filter
     if (!search.trim()) return true;
     const q = search.toLowerCase();
+    // items may be an array (MongoDB) or a JSON string (legacy)
+    const itemsStr = Array.isArray(o.items)
+      ? o.items.map((it) => it.name || '').join(', ')
+      : (o.items || '');
     return (
       (o.orderId || '').toLowerCase().includes(q) ||
       (o.profileName || '').toLowerCase().includes(q) ||
       (o.phone || '').toLowerCase().includes(q) ||
-      (o.items || '').toLowerCase().includes(q) ||
+      itemsStr.toLowerCase().includes(q) ||
       (o.deliveryAddress || '').toLowerCase().includes(q) ||
       (o.notes || '').toLowerCase().includes(q)
     );
@@ -443,7 +447,7 @@ export default function Orders() {
 
             return (
               <div
-                key={order.orderId || order._rowIndex}
+                key={order.orderId}
                 className="bg-white rounded-xl shadow-sm p-5 animate-fade-in"
               >
                 {/* Header */}

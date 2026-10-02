@@ -23,10 +23,10 @@ export default function Handoffs() {
   const { data: rawData, revalidating, revalidate } = useStaleData(HANDOFFS_URL);
   const handoffs = Array.isArray(rawData) ? rawData : (rawData?.handoffs || []);
 
-  const resolve = async (rowIndex) => {
-    setResolving(rowIndex);
+  const resolve = async (id) => {
+    setResolving(id);
     try {
-      await fetch(`/api/handoffs/${rowIndex}/resolve`, {
+      await fetch(`/api/handoffs/${id}/resolve`, {
         method: 'PATCH',
         credentials: 'include',
       });
@@ -76,7 +76,7 @@ export default function Handoffs() {
           const isActive = h.status !== 'resolved';
           return (
             <div
-              key={h._rowIndex}
+              key={h._id}
               className={`bg-white rounded-xl shadow-sm p-5 animate-fade-in ${
                 isActive ? 'ring-2 ring-brand-200' : ''
               }`}
@@ -119,12 +119,12 @@ export default function Handoffs() {
                 </span>
                 {isActive && (
                   <button
-                    onClick={() => resolve(h._rowIndex)}
-                    disabled={resolving === h._rowIndex}
+                    onClick={() => resolve(h._id)}
+                    disabled={resolving === h._id}
                     className="flex items-center gap-1.5 px-3 py-1.5 bg-green-500 hover:bg-green-600 text-white rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
                   >
                     <CheckCircle size={14} />
-                    {resolving === h._rowIndex ? 'Resolving...' : 'Resolve'}
+                    {resolving === h._id ? 'Resolving...' : 'Resolve'}
                   </button>
                 )}
               </div>

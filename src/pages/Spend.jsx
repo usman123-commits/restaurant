@@ -212,7 +212,7 @@ export default function Spend() {
     if (!expenseToDelete) return;
     setDeleting(true);
     try {
-      const res = await fetch(`/api/spend/${expenseToDelete._rowIndex}`, {
+      const res = await fetch(`/api/spend/${expenseToDelete._id}`, {
         method: 'DELETE',
         credentials: 'include',
       });
@@ -437,7 +437,7 @@ export default function Spend() {
 
             return (
               <div
-                key={item._rowIndex ?? item.timestamp}
+                key={item._id}
                 className="bg-white rounded-xl shadow-sm p-5 flex flex-col justify-between hover:shadow-md transition-shadow animate-fade-in border border-gray-100"
               >
                 <div>

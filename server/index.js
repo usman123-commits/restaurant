@@ -4,7 +4,7 @@ dotenv.config();
 import express from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
-import { initAuth } from './sheets.js';
+import { connectDB } from './db.js';
 import authMiddleware from './middleware/auth.js';
 import authRoutes from './routes/auth.js';
 import ordersRoutes from './routes/orders.js';
@@ -41,13 +41,13 @@ app.use('/api/spend', spendRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok' });
+  res.json({ status: 'ok', db: 'mongodb' });
 });
 
-// Initialize Google Sheets auth, then start server
+// Connect to MongoDB, then start server
 async function start() {
   try {
-    await initAuth();
+    await connectDB();
     app.listen(PORT, () => {
       console.log(`Server running on http://localhost:${PORT}`);
     });

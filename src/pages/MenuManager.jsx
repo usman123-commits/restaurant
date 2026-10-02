@@ -16,15 +16,15 @@ const MENU_URL = '/api/menu';
 
 export default function MenuManager() {
   const [showAdd, setShowAdd] = useState(false);
-  const [editIdx, setEditIdx] = useState(null);
+  const [editIdx, setEditIdx] = useState(null); // holds MongoDB _id string
   const [editData, setEditData] = useState({});
   const [newItem, setNewItem] = useState({ category: '', item: '', price: '', description: '', available: 'TRUE' });
   const [collapsed, setCollapsed] = useState({});
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState('');
   const [deleteConfirm, setDeleteConfirm] = useState(null);
-  const [togglingIdx, setTogglingIdx] = useState(null);
-  const [deletingIdx, setDeletingIdx] = useState(null);
+  const [togglingIdx, setTogglingIdx] = useState(null); // holds MongoDB _id string
+  const [deletingIdx, setDeletingIdx] = useState(null); // holds MongoDB _id string
 
   const { data: rawItems, revalidating, revalidate } = useStaleData(MENU_URL, {
     transform: (d) => (Array.isArray(d) ? d : []),
@@ -46,28 +46,18 @@ export default function MenuManager() {
     return Boolean(val);
   };
 
-  const toggleAvailable = async (rowIndex, current) => {
-    setTogglingIdx(rowIndex);
-    setItems((prev) =>
-      prev.map((it) =>
-        it._rowIndex === rowIndex ? { ...it, available: current ? 'FALSE' : 'TRUE' } : it
-      )
-    );
+  // id = MongoDB _id string
+  const toggleAvailable = async (id, current) => {
+    setTogglingIdx(id);
     try {
-      await fetch(`/api/menu/${rowIndex}`, {
+      await fetch(`/api/menu/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ available: current ? 'FALSE' : 'TRUE' }),
+        body: JSON.stringify({ available: !current }),
       });
       fetchMenu();
-    } catch {
-      setItems((prev) =>
-        prev.map((it) =>
-          it._rowIndex === rowIndex ? { ...it, available: current ? 'TRUE' : 'FALSE' } : it
-        )
-      );
-    }
+    } catch { /* silent */ }
     setTogglingIdx(null);
   };
 
@@ -107,10 +97,11 @@ export default function MenuManager() {
     setSaving(false);
   };
 
-  const deleteItem = async (rowIndex) => {
-    setDeletingIdx(rowIndex);
+  // id = MongoDB _id string
+  const deleteItem = async (id) => {
+    setDeletingIdx(id);
     try {
-      await fetch(`/api/menu/${rowIndex}`, {
+      await fetch(`/api/menu/${id}`, {
         method: 'DELETE',
         credentials: 'include',
       });
@@ -300,13 +291,13 @@ export default function MenuManager() {
                     </thead>
                     <tbody className="divide-y divide-gray-50">
                       {catItems.map((item) => {
-                        const idx = item._rowIndex;
-                        const isEditing = editIdx === idx;
+                        const id = item._id;
+                        const isEditing = editIdx === id;
                         const avail = isAvail(item.available);
-                        const isToggling = togglingIdx === idx;
+                        const isToggling = togglingIdx === id;
 
                         return (
-                          <tr key={idx} className={`transition-colors ${isEditing ? 'bg-brand-50/30' : 'hover:bg-gray-50'}`}>
+                          <tr key={id} className={`transition-colors ${isEditing ? 'bg-brand-50/30' : 'hover:bg-gray-50'}`}>
                             <td className="px-5 py-3">
                               {isEditing ? (
                                 <input
@@ -350,7 +341,7 @@ export default function MenuManager() {
                                 </div>
                               ) : (
                                 <button
-                                  onClick={() => toggleAvailable(idx, avail)}
+                                  onClick={() => toggleAvailable(id, avail)}
                                   className={`relative w-11 h-6 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-1 ${
                                     avail ? 'bg-green-500' : 'bg-gray-300'
                                   }`}
@@ -395,7 +386,7 @@ export default function MenuManager() {
                                 <div className="flex items-center justify-end gap-1">
                                   <button
                                     onClick={() => {
-                                      setEditIdx(idx);
+                                      setEditIdx(id);
                                       setEditData({
                                         category: item.category || '',
                                         item: item.item || '',
@@ -408,14 +399,14 @@ export default function MenuManager() {
                                   >
                                     <Pencil size={16} />
                                   </button>
-                                  {deleteConfirm === idx ? (
+                                  {deleteConfirm === id ? (
                                     <div className="flex items-center gap-1">
                                       <button
-                                        onClick={() => deleteItem(idx)}
-                                        disabled={deletingIdx === idx}
+                                        onClick={() => deleteItem(id)}
+                                        disabled={deletingIdx === id}
                                         className="flex items-center gap-1 text-xs px-2 py-1 bg-red-500 text-white rounded hover:bg-red-600 disabled:opacity-50"
                                       >
-                                        {deletingIdx === idx ? (
+                                        {deletingIdx === id ? (
                                           <Spinner size={10} className="text-white" />
                                         ) : null}
                                         Delete
@@ -429,7 +420,7 @@ export default function MenuManager() {
                                     </div>
                                   ) : (
                                     <button
-                                      onClick={() => setDeleteConfirm(idx)}
+                                      onClick={() => setDeleteConfirm(id)}
                                       className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
                                       title="Delete"
                                     >
