@@ -8,7 +8,7 @@ export async function connectDB() {
   const uri = process.env.MONGODB_URI;
   if (!uri) throw new Error('MONGODB_URI is not set in environment variables');
 
-  const maskedUri = uri.replace(/:\\/\\/([^:]+):([^@]+)@/, '://$1:***@');
+  const maskedUri = uri.replace(/:\/\/([^:]+):([^@]+)@/, '://$1:***@');
   console.log('Connecting to MongoDB:', maskedUri);
 
   try {
