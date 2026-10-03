@@ -1,13 +1,63 @@
 import { Router } from 'express';
 import { Order } from '../models.js';
+import { clampLimit, parseCursor, fetchPage, timeRange, searchFilter, and } from '../lib/paging.js';
 
 const router = Router();
 
-// GET /api/orders - all orders, newest first
+// Tab rules -- mirror of matchesTabFilter() in src/pages/Orders.jsx. Keep the two in sync.
+// "Served" is not a stored status: it's a dine-in order whose status is 'delivered'.
+const DINE_IN_CLAUSES = [
+  { deliveryAddress: /dine[ -]in/i },
+  { phone: /dine/i },
+  { profileName: /dine-in/i },
+];
+const DINE_IN = { $or: DINE_IN_CLAUSES };
+const NOT_DINE_IN = { $nor: DINE_IN_CLAUSES };
+
+const TAB_FILTERS = {
+  'All':        {},
+  'Dine In':    DINE_IN,
+  'Preparing':  { status: { $in: ['preparing', null, ''] } },
+  'On the Way': { status: 'on_the_way' },
+  'Delivered':  and({ status: 'delivered' }, NOT_DINE_IN),
+  'Served':     { $or: [{ status: 'served' }, and({ status: 'delivered' }, DINE_IN)] },
+  'Cancelled':  { status: 'cancelled' },
+};
+
+// Live kitchen queues: never hide an active order behind "Load more".
+const ACTIVE_TABS = new Set(['Preparing', 'On the Way']);
+const ACTIVE_TAB_LIMIT = 500;
+
+const SEARCH_FIELDS = ['orderId', 'profileName', 'phone', 'items.name', 'deliveryAddress', 'notes'];
+
+// GET /api/orders?tab=All&from=<ISO>&to=<ISO>&q=&limit=20&before=<cursor>
+//   -> { orders, hasMore, nextCursor, counts? }   (counts only on the first page)
+// Without `limit` it returns the legacy plain array of every order.
 router.get('/', async (req, res) => {
   try {
-    const orders = await Order.find().sort({ timestamp: -1 }).lean();
-    res.json(orders);
+    if (req.query.limit === undefined) {
+      const orders = await Order.find().sort({ timestamp: -1 }).lean();
+      return res.json(orders);
+    }
+
+    const tab = TAB_FILTERS[req.query.tab] ? req.query.tab : 'All';
+    const limit = ACTIVE_TABS.has(tab)
+      ? ACTIVE_TAB_LIMIT
+      : clampLimit(req.query.limit, 20, 100);
+    const cursor = parseCursor(req.query.before);
+
+    // Date + search apply to both the list and the tab counts; the tab only to the list.
+    const base = and(timeRange(req.query.from, req.query.to), searchFilter(req.query.q, SEARCH_FIELDS));
+
+    const pagePromise = fetchPage(Order, and(base, TAB_FILTERS[tab]), { limit, cursor });
+    const countsPromise = cursor
+      ? null
+      : Promise.all(
+          Object.entries(TAB_FILTERS).map(async ([name, f]) => [name, await Order.countDocuments(and(base, f))])
+        ).then(Object.fromEntries);
+
+    const [page, counts] = await Promise.all([pagePromise, countsPromise]);
+    res.json({ orders: page.items, hasMore: page.hasMore, nextCursor: page.nextCursor, ...(counts && { counts }) });
   } catch (err) {
     console.error('Error fetching orders:', err.message);
     res.status(500).json({ error: 'Failed to fetch orders' });

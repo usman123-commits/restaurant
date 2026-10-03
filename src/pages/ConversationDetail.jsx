@@ -85,7 +85,7 @@ export default function ConversationDetail() {
       el.scrollTop = el.scrollHeight - prependAnchor.current;
       prependAnchor.current = null;
     }
-  }, [older.messages.length]);
+  }, [older.messages]);
 
   const loadOlder = async () => {
     if (!nextCursor) return;
@@ -99,11 +99,13 @@ export default function ConversationDetail() {
       const data = await res.json();
       const el = scrollRef.current;
       if (el) prependAnchor.current = el.scrollHeight - el.scrollTop;
-      setOlder((prev) => ({
-        messages: [...(data.messages || []), ...prev.messages],
+      // Snapshot what's on screen too: if a new message later pushes the oldest
+      // message out of the cached newest-20 page, it must not fall into a gap.
+      setOlder({
+        messages: [...(data.messages || []), ...messages],
         nextCursor: data.nextCursor || null,
         loaded: true,
-      }));
+      });
     } catch { /* silent */ }
     setLoadingMore(false);
   };
