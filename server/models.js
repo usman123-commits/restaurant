@@ -42,6 +42,9 @@ const conversationSchema = new Schema({
   sessionId:   { type: String, default: '' },
 }, schemaOpts);
 
+// Serves "latest N messages for a phone" and the cursor for "load older".
+conversationSchema.index({ phone: 1, timestamp: -1, _id: -1 });
+
 export const Conversation = mongoose.models.Conversation || mongoose.model('Conversation', conversationSchema);
 
 // ─── Handoff ─────────────────────────────────────────────────────────────────

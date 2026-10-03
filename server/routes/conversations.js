@@ -1,7 +1,44 @@
 import { Router } from 'express';
+import mongoose from 'mongoose';
 import { Conversation } from '../models.js';
 
 const router = Router();
+
+// The n8n bot logs its own replies with role 'assistant' and profileName 'BOT'.
+// Only customer messages carry the customer's real WhatsApp name.
+const BOT_NAME = 'BOT';
+const customerMessageMatch = {
+  role: { $ne: 'assistant' },
+  profileName: { $nin: ['', null, BOT_NAME] },
+};
+
+function clampLimit(raw, fallback, max) {
+  const n = parseInt(raw ?? fallback, 10);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.min(n, max);
+}
+
+// Cursor = "<ISO timestamp>_<ObjectId>" of the oldest message the client already has.
+// _id breaks ties so two messages with the same timestamp never get skipped.
+function parseCursor(raw) {
+  if (!raw) return null;
+  const sep = raw.lastIndexOf('_');
+  if (sep === -1) return null;
+  const ts = new Date(raw.slice(0, sep));
+  const id = raw.slice(sep + 1);
+  if (isNaN(ts) || !mongoose.Types.ObjectId.isValid(id)) return null;
+  return { ts, id: new mongoose.Types.ObjectId(id) };
+}
+
+async function customerNamesByPhone(phones) {
+  if (!phones.length) return {};
+  const rows = await Conversation.aggregate([
+    { $match: { phone: { $in: phones }, ...customerMessageMatch } },
+    { $sort: { timestamp: -1 } },
+    { $group: { _id: '$phone', profileName: { $first: '$profileName' } } },
+  ]);
+  return Object.fromEntries(rows.map((r) => [r._id, r.profileName]));
+}
 
 // GET /api/conversations?limit=20&offset=0
 router.get('/', async (req, res) => {
@@ -15,7 +52,6 @@ router.get('/', async (req, res) => {
       {
         $group: {
           _id:           '$phone',
-          profileName:   { $last: '$profileName' },
           lastMessage:   { $last: '$message' },
           lastTimestamp: { $last: '$timestamp' },
           messageCount:  { $sum: 1 },
@@ -25,9 +61,12 @@ router.get('/', async (req, res) => {
     ]);
 
     const total = agg.length;
-    const page  = agg.slice(offset, offset + limit).map((c) => ({
+    const pageRows = agg.slice(offset, offset + limit);
+    const names = await customerNamesByPhone(pageRows.map((c) => c._id));
+
+    const page = pageRows.map((c) => ({
       phone:         c._id,
-      profileName:   c.profileName || '',
+      profileName:   names[c._id] || '',
       lastMessage:   c.lastMessage || '',
       lastTimestamp: c.lastTimestamp,
       messageCount:  c.messageCount,
@@ -40,26 +79,43 @@ router.get('/', async (req, res) => {
   }
 });
 
-// GET /api/conversations/:phone?limit=50
+// GET /api/conversations/:phone?limit=20&before=<cursor>
+// Returns the newest `limit` messages older than `before` (or the newest overall),
+// in chronological order, plus `nextCursor` for loading the page before that.
 router.get('/:phone', async (req, res) => {
   try {
     const { phone } = req.params;
-    const limit = parseInt(req.query.limit || '50', 10);
+    const limit = clampLimit(req.query.limit, 20, 100);
+    const cursor = parseCursor(req.query.before);
 
-    const total = await Conversation.countDocuments({ phone });
-    if (total === 0) {
-      return res.json({ messages: [], total: 0, hasMore: false, profileName: phone });
+    const filter = { phone };
+    if (cursor) {
+      filter.$or = [
+        { timestamp: { $lt: cursor.ts } },
+        { timestamp: cursor.ts, _id: { $lt: cursor.id } },
+      ];
     }
 
-    // Get the last `limit` messages in chronological order
-    const messages = await Conversation.find({ phone })
-      .sort({ timestamp: 1 })
-      .skip(Math.max(0, total - limit))
-      .lean();
+    const [newestFirst, total, names] = await Promise.all([
+      Conversation.find(filter).sort({ timestamp: -1, _id: -1 }).limit(limit + 1).lean(),
+      Conversation.countDocuments({ phone }),
+      customerNamesByPhone([phone]),
+    ]);
 
-    const profileName = messages.find((m) => m.profileName)?.profileName || phone;
+    const hasMore = newestFirst.length > limit;
+    const messages = newestFirst.slice(0, limit).reverse();
+    const oldest = messages[0];
+    const nextCursor = hasMore && oldest
+      ? `${new Date(oldest.timestamp).toISOString()}_${oldest._id}`
+      : null;
 
-    res.json({ messages, total, hasMore: total > limit, profileName });
+    res.json({
+      messages,
+      total,
+      hasMore,
+      nextCursor,
+      profileName: names[phone] || phone,
+    });
   } catch (err) {
     console.error('Error fetching conversation:', err.message);
     res.status(500).json({ error: 'Failed to fetch conversation' });
