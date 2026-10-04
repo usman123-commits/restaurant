@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Save, Loader2, MessageSquare } from 'lucide-react';
 
+import { SettingsSkeleton } from '../components/Skeleton';
 function Spinner({ size = 16, className = '' }) {
   return <Loader2 size={size} className={`animate-spin-slow ${className}`} />;
 }
@@ -46,11 +47,7 @@ export default function Settings() {
   };
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <Spinner size={32} className="text-brand-500" />
-      </div>
-    );
+    return <SettingsSkeleton />;
   }
 
   const contextMarks = [10, 25, 50, 75, 100];
