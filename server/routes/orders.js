@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { Order } from '../models.js';
-import { ORDER_TABS, getTab, tabMongoFilter } from '../shared/orderTabs.js';
+import { ORDER_TABS, ORDER_TYPES, getTab, tabMongoFilter } from '../shared/orderTabs.js';
 import { clampLimit, parseCursor, fetchPage, timeRange, searchFilter, and } from '../lib/paging.js';
 
 const router = Router();
@@ -55,7 +55,12 @@ router.post('/', async (req, res) => {
       deliveryAddress = 'Dine In',
       notes = '',
       status = 'preparing',
+      orderType = 'dine_in', // this endpoint backs the dashboard's dine-in order form
     } = req.body;
+
+    if (!ORDER_TYPES.includes(orderType)) {
+      return res.status(400).json({ error: `orderType must be one of: ${ORDER_TYPES.join(', ')}` });
+    }
 
     if (!Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ error: 'Order must contain at least one item' });
@@ -85,6 +90,7 @@ router.post('/', async (req, res) => {
       items: parsedItems,
       totalAmount: computedTotal,
       deliveryAddress: deliveryAddress.trim() || 'Dine In',
+      orderType,
       status: status.toLowerCase() || 'preparing',
       notes: notes.trim() || '',
     });

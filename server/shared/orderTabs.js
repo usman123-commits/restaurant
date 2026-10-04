@@ -6,11 +6,15 @@
 //
 // A rule is one of:
 //   { status: [...] }   order status is one of these ('' = missing/empty)
-//   { dineIn: bool }    order is / is not dine-in (see DINE_IN_MATCHERS)
+//   { dineIn: bool }    order is / is not dine-in (see isDineIn)
 //   { all: [rules] }    every rule matches
 //   { any: [rules] }    at least one rule matches
 
-// Dine-in is inferred from text until orders carry an explicit orderType.
+// Orders carry an explicit orderType ('dine_in' | 'delivery'). Orders saved
+// before that field existed (or by an n8n workflow not yet updated) fall back
+// to guessing from text, exactly as before.
+export const ORDER_TYPES = ['dine_in', 'delivery'];
+
 const DINE_IN_MATCHERS = [
   { field: 'deliveryAddress', pattern: 'dine[ -]in' },
   { field: 'phone',           pattern: 'dine' },
@@ -39,8 +43,15 @@ export function getTab(name) {
 
 const DINE_IN_REGEXES = DINE_IN_MATCHERS.map((m) => ({ field: m.field, re: new RegExp(m.pattern, 'i') }));
 
-export function isDineIn(order) {
+// The old text-based guess. Only used when orderType is missing.
+export function guessDineInFromText(order) {
   return DINE_IN_REGEXES.some(({ field, re }) => re.test(String(order?.[field] ?? '')));
+}
+
+export function isDineIn(order) {
+  const type = order?.orderType;
+  if (type) return type === 'dine_in';
+  return guessDineInFromText(order);
 }
 
 function normStatus(order) {
@@ -61,7 +72,22 @@ export function matchesTab(order, tabName) {
 
 // ---- MongoDB filter ----------------------------------------------------------
 
-const DINE_IN_MONGO = DINE_IN_MATCHERS.map((m) => ({ [m.field]: new RegExp(m.pattern, 'i') }));
+const DINE_IN_TEXT_MONGO = DINE_IN_MATCHERS.map((m) => ({ [m.field]: new RegExp(m.pattern, 'i') }));
+const TYPE_MISSING = { orderType: { $in: [null, ''] } };
+
+// Mirrors isDineIn(): explicit orderType wins, text guess only when it's missing.
+const DINE_IN_MONGO = {
+  $or: [
+    { orderType: 'dine_in' },
+    { $and: [TYPE_MISSING, { $or: DINE_IN_TEXT_MONGO }] },
+  ],
+};
+const NOT_DINE_IN_MONGO = {
+  $or: [
+    { orderType: { $nin: ['dine_in', null, ''] } },
+    { $and: [TYPE_MISSING, { $nor: DINE_IN_TEXT_MONGO }] },
+  ],
+};
 
 function ruleToMongo(rule) {
   if (rule.all) return rule.all.length ? { $and: rule.all.map(ruleToMongo) } : {};
@@ -71,7 +97,7 @@ function ruleToMongo(rule) {
     const values = rule.status.flatMap((s) => (s === '' ? [null, ''] : [s]));
     return { status: { $in: values } };
   }
-  if ('dineIn' in rule) return rule.dineIn ? { $or: DINE_IN_MONGO } : { $nor: DINE_IN_MONGO };
+  if ('dineIn' in rule) return rule.dineIn ? DINE_IN_MONGO : NOT_DINE_IN_MONGO;
   throw new Error(`Unknown order tab rule: ${JSON.stringify(rule)}`);
 }
 
