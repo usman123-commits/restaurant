@@ -19,7 +19,8 @@ import {
   AlertTriangle,
   GlassWater,
 } from 'lucide-react';
-import { useStaleData, invalidateCache } from '../hooks/useStaleData';
+import { usePagedList, useDebouncedValue, localDayRange, buildUrl } from '../hooks/usePagedList';
+import LoadMoreButton from '../components/LoadMoreButton';
 
 function fmt(n) {
   return Number(n || 0).toLocaleString();
@@ -68,16 +69,6 @@ function getYesterdayStr() {
   return `${y}-${m}-${day}`;
 }
 
-function getSpendRecordDateStr(timestamp) {
-  if (!timestamp) return '';
-  const d = new Date(timestamp);
-  if (isNaN(d)) return '';
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
-
 const CATEGORIES = [
   'All',
   'Ingredients',
@@ -102,6 +93,7 @@ const categoryConfig = {
 const PAYMENT_METHODS = ['Cash', 'Bank Transfer', 'Card', 'Other'];
 
 const SPEND_URL = '/api/spend';
+const PAGE_SIZE = 20;
 
 export default function Spend() {
   const [activeCategory, setActiveCategory] = useState('All');
@@ -119,38 +111,41 @@ export default function Spend() {
   const [saving, setSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
-  const { data: rawSpendData, revalidating, revalidate } = useStaleData(SPEND_URL);
+  // Every filter is part of the URL: the server filters/paginates, and each
+  // filter combination gets its own stale-while-revalidate cache entry.
+  const debouncedSearch = useDebouncedValue(search.trim());
+  const range = localDayRange(selectedDate);
+  const listUrl = buildUrl(SPEND_URL, {
+    category: activeCategory,
+    from: range?.from,
+    to: range?.to,
+    q: debouncedSearch,
+    tz: new Date().getTimezoneOffset(),
+    limit: PAGE_SIZE,
+  });
+  const {
+    data: rawSpendData,
+    items: spends,
+    hasMore,
+    loadMore,
+    loadingMore,
+    revalidating,
+    revalidate,
+    mutateItems,
+  } = usePagedList(listUrl, 'spends');
 
-  const spends = rawSpendData?.spends || [];
+  // Top cards: all-time / today / this month, independent of the filters.
   const totalSpend = rawSpendData?.totalSpend || 0;
   const todaySpend = rawSpendData?.todaySpend || 0;
   const monthSpend = rawSpendData?.monthSpend || 0;
+  const totalCount = rawSpendData?.totalCount || 0;
+  // Counts per category for the current date + search filter (lowercased keys).
+  const categoryCounts = rawSpendData?.categoryCounts || {};
+  const filteredCount = rawSpendData?.filteredCount || 0;
+  const countFor = (cat) => (cat === 'All' ? filteredCount : categoryCounts[cat.toLowerCase()] || 0);
 
-  // Filter spends by date, category, and search term
-  const filtered = spends.filter((item) => {
-    // 1. Date Filter
-    if (selectedDate) {
-      const itemDate = getSpendRecordDateStr(item.timestamp);
-      if (itemDate !== selectedDate) return false;
-    }
-
-    // 2. Category Filter
-    const matchCategory =
-      activeCategory === 'All' ||
-      (item.category || '').toLowerCase() === activeCategory.toLowerCase();
-
-    if (!matchCategory) return false;
-
-    // 3. Search Filter
-    if (!search.trim()) return true;
-    const q = search.toLowerCase();
-    return (
-      (item.description || '').toLowerCase().includes(q) ||
-      (item.category || '').toLowerCase().includes(q) ||
-      (item.paymentMethod || '').toLowerCase().includes(q) ||
-      String(item.amount || '').includes(q)
-    );
-  });
+  // Server already applied date + category + search.
+  const filtered = spends;
 
   const handleOpenModal = () => {
     setDescription('');
@@ -196,7 +191,6 @@ export default function Spend() {
 
       const data = await res.json();
       if (res.ok && data.success) {
-        invalidateCache(SPEND_URL);
         await revalidate();
         setIsModalOpen(false);
       } else {
@@ -217,7 +211,8 @@ export default function Spend() {
         credentials: 'include',
       });
       if (res.ok) {
-        invalidateCache(SPEND_URL);
+        const deletedId = expenseToDelete._id;
+        mutateItems((items) => items.filter((it) => it._id !== deletedId));
         await revalidate();
         setExpenseToDelete(null);
       }
@@ -250,7 +245,7 @@ export default function Spend() {
               <Wallet size={22} />
             </div>
           </div>
-          <p className="text-xs text-gray-400 mt-2">{spends.length} total transaction{spends.length !== 1 ? 's' : ''}</p>
+          <p className="text-xs text-gray-400 mt-2">{totalCount} total transaction{totalCount !== 1 ? 's' : ''}</p>
         </div>
 
         <div className="bg-white rounded-xl shadow-sm p-5 border border-gray-100">
@@ -389,13 +384,7 @@ export default function Spend() {
       {/* Category Filter Grid - 2 full rows (4 columns x 2 rows = 8 items) */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 w-full">
         {CATEGORIES.map((cat) => {
-          const count =
-            cat === 'All'
-              ? spends.filter((s) => !selectedDate || getSpendRecordDateStr(s.timestamp) === selectedDate).length
-              : spends.filter((s) => {
-                  if (selectedDate && getSpendRecordDateStr(s.timestamp) !== selectedDate) return false;
-                  return (s.category || '').toLowerCase() === cat.toLowerCase();
-                }).length;
+          const count = countFor(cat);
 
           return (
             <button
@@ -488,6 +477,14 @@ export default function Spend() {
             );
           })}
         </div>
+      )}
+
+      {hasMore && (
+        <LoadMoreButton
+          onClick={loadMore}
+          loading={loadingMore}
+          label={`Load more (${Math.max(0, countFor(activeCategory) - spends.length)} remaining)`}
+        />
       )}
 
       {/* Add Spend Modal */}

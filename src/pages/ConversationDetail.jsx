@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, MessageSquare, Loader2, PhoneForwarded, Check } from 'lucide-react';
 import { useStaleData, invalidateCache } from '../hooks/useStaleData';
@@ -15,20 +15,32 @@ function formatTime(dateStr) {
   return `${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} ${time}`;
 }
 
-const MSG_LIMIT = 50;
+const MSG_LIMIT = 20;
+
+// The n8n bot logs its replies with role 'assistant' and profileName 'BOT'.
+function isBotMessage(msg) {
+  return msg.role === 'assistant' || msg.profileName === 'BOT';
+}
+
+// Bot (restaurant) on the left, customer on the right.
+// Flip to true for the standard WhatsApp layout (own side on the right).
+const BOT_ON_RIGHT = false;
 
 export default function ConversationDetail() {
   const { phone } = useParams();
   const navigate = useNavigate();
-  const [extraData, setExtraData] = useState(null);
+  // Older pages loaded via "Load older" -- kept outside the SWR cache, which only
+  // holds the newest page so revisits stay instant and cheap.
+  const [older, setOlder] = useState({ messages: [], nextCursor: null, loaded: false });
   const [loadingMore, setLoadingMore] = useState(false);
   const [handingOff, setHandingOff] = useState(false);
   const [handoffSuccess, setHandoffSuccess] = useState(false);
   const bottomRef = useRef(null);
+  const scrollRef = useRef(null);
+  const prependAnchor = useRef(null);
 
-  // Clear extraData when the phone changes
   useEffect(() => {
-    setExtraData(null);
+    setOlder({ messages: [], nextCursor: null, loaded: false });
     setHandoffSuccess(false);
   }, [phone]);
 
@@ -41,27 +53,59 @@ export default function ConversationDetail() {
   const handoffsList = Array.isArray(rawHandoffs) ? rawHandoffs : (rawHandoffs?.handoffs || []);
   const isHandedOff = handoffSuccess || handoffsList.some((h) => h.status !== 'resolved' && String(h.phone) === String(phone));
 
-  const total = extraData?.total ?? rawData?.total ?? 0;
-  const profileName = extraData?.profileName ?? rawData?.profileName ?? phone;
-  const messages = extraData?.messages ?? rawData?.messages ?? [];
+  const total = rawData?.total ?? 0;
+  const profileName = rawData?.profileName ?? phone;
 
-  // Scroll to bottom when messages load or change
-  const prevMessagesLength = useRef(0);
+  // Older pages first, then the (revalidated) newest page. Dedupe by _id because
+  // the newest page slides forward as new messages arrive and can overlap.
+  const seen = new Set();
+  const messages = [...older.messages, ...(rawData?.messages ?? [])].filter((m) => {
+    const key = m._id || `${m.timestamp}|${m.role}|${m.message}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  const nextCursor = older.loaded ? older.nextCursor : rawData?.nextCursor ?? null;
+  const hasMore = Boolean(nextCursor);
+
+  // Scroll to bottom only when the newest message changes (first load / new message),
+  // not when older messages are prepended.
+  const lastId = messages.length ? (messages[messages.length - 1]._id || messages.length) : null;
   useEffect(() => {
-    if (messages.length > 0 && messages.length !== prevMessagesLength.current) {
+    if (lastId != null) {
       setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
-      prevMessagesLength.current = messages.length;
     }
-  }, [messages]);
+  }, [lastId]);
 
-  const loadAll = async () => {
+  // Keep the viewport on the same message after prepending older ones.
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (el && prependAnchor.current != null) {
+      el.scrollTop = el.scrollHeight - prependAnchor.current;
+      prependAnchor.current = null;
+    }
+  }, [older.messages]);
+
+  const loadOlder = async () => {
+    if (!nextCursor) return;
     setLoadingMore(true);
     try {
-      const res = await fetch(`/api/conversations/${encodeURIComponent(phone)}?limit=${total}`, {
-        credentials: 'include',
-      });
+      const res = await fetch(
+        `/api/conversations/${encodeURIComponent(phone)}?limit=${MSG_LIMIT}&before=${encodeURIComponent(nextCursor)}`,
+        { credentials: 'include' }
+      );
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-      setExtraData(data);
+      const el = scrollRef.current;
+      if (el) prependAnchor.current = el.scrollHeight - el.scrollTop;
+      // Snapshot what's on screen too: if a new message later pushes the oldest
+      // message out of the cached newest-20 page, it must not fall into a gap.
+      setOlder({
+        messages: [...(data.messages || []), ...messages],
+        nextCursor: data.nextCursor || null,
+        loaded: true,
+      });
     } catch { /* silent */ }
     setLoadingMore(false);
   };
@@ -96,8 +140,6 @@ export default function ConversationDetail() {
     }
     setHandingOff(false);
   };
-
-  const hasMore = total > messages.length;
 
   return (
     <div className="space-y-4">
@@ -146,7 +188,8 @@ export default function ConversationDetail() {
 
       {/* Chat area */}
       <div
-        className="bg-white rounded-xl shadow-sm min-h-[60vh] max-h-[75vh] overflow-auto p-4"
+        ref={scrollRef}
+        className="bg-[#efeae2] rounded-xl shadow-sm min-h-[60vh] max-h-[75vh] overflow-auto p-4"
         style={{
           backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'60\' height=\'60\' viewBox=\'0 0 60 60\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'none\' fill-rule=\'evenodd\'%3E%3Cg fill=\'%23f3f4f6\' fill-opacity=\'0.4\'%3E%3Cpath d=\'M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z\'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")',
         }}
@@ -166,9 +209,9 @@ export default function ConversationDetail() {
             {hasMore && (
               <div className="flex justify-center py-2">
                 <button
-                  onClick={loadAll}
+                  onClick={loadOlder}
                   disabled={loadingMore}
-                  className="flex items-center gap-2 px-4 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-full text-xs text-gray-600 font-medium transition-colors disabled:opacity-50"
+                  className="flex items-center gap-2 px-4 py-1.5 bg-white/90 hover:bg-white shadow-sm rounded-full text-xs text-gray-600 font-medium transition-colors disabled:opacity-50"
                 >
                   {loadingMore ? (
                     <>
@@ -176,28 +219,30 @@ export default function ConversationDetail() {
                       Loading...
                     </>
                   ) : (
-                    `Load ${total - messages.length} older messages`
+                    `Load older messages (${Math.max(0, total - messages.length)} more)`
                   )}
                 </button>
               </div>
             )}
 
             {messages.map((msg, i) => {
-              const isOutgoing = msg.direction === 'outgoing' || msg.direction === 'out' || msg.from === 'bot';
+              const isBot = isBotMessage(msg);
+              const onRight = isBot === BOT_ON_RIGHT;
               return (
                 <div
-                  key={msg.id || i}
-                  className={`flex ${isOutgoing ? 'justify-end' : 'justify-start'}`}
+                  key={msg._id || i}
+                  className={`flex ${onRight ? 'justify-end' : 'justify-start'}`}
                 >
                   <div
-                    className={`max-w-[75%] px-3.5 py-2 rounded-2xl text-sm ${
-                      isOutgoing
-                        ? 'bg-green-100 text-gray-900 chat-bubble-right'
-                        : 'bg-gray-100 text-gray-900 chat-bubble-left'
-                    }`}
+                    className={`max-w-[75%] px-3.5 py-2 rounded-2xl text-sm shadow-sm text-gray-900 ${
+                      onRight ? 'chat-bubble-right' : 'chat-bubble-left'
+                    } ${isBot ? 'bg-white' : 'bg-[#d9fdd3]'}`}
                   >
+                    <p className={`text-[11px] font-semibold mb-0.5 ${isBot ? 'text-brand-600' : 'text-emerald-700'}`}>
+                      {isBot ? 'OTTO (bot)' : profileName}
+                    </p>
                     <p className="whitespace-pre-wrap break-words">{msg.body || msg.message || msg.text}</p>
-                    <p className={`text-[10px] mt-1 ${isOutgoing ? 'text-green-600' : 'text-gray-400'} text-right`}>
+                    <p className={`text-[10px] mt-1 ${isBot ? 'text-gray-400' : 'text-emerald-600'} text-right`}>
                       {formatTime(msg.timestamp || msg.createdAt)}
                     </p>
                   </div>

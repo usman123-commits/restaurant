@@ -21,6 +21,7 @@ const cache = new Map();
  * @param {string}   url           - The API endpoint to fetch.
  * @param {object}   [options]
  * @param {number}   [options.pollInterval]  - Auto-refresh interval in ms (0 = no polling).
+ *                                           Paused while the browser tab is hidden.
  * @param {function} [options.transform]     - Optional transform applied to raw JSON before storing.
  * @returns {{ data: any, revalidating: boolean, revalidate: function }}
  */
@@ -31,41 +32,64 @@ export function useStaleData(url, { pollInterval = 0, transform } = {}) {
   // revalidating=true only when there is NO cached data yet (very first load)
   const [revalidating, setRevalidating] = useState(!cached);
   const isMounted = useRef(true);
+  const currentUrl = useRef(url);
+
+  // When the URL changes (e.g. a filter), switch to that URL's cached data right
+  // away instead of showing the previous URL's data until the fetch returns.
+  const [shownUrl, setShownUrl] = useState(url);
+  if (shownUrl !== url) {
+    setShownUrl(url);
+    setData(cached?.data ?? null);
+    setRevalidating(!cached);
+  }
 
   const fetchData = async () => {
+    const requestUrl = url;
     try {
-      const res = await fetch(url, { credentials: "include" });
+      const res = await fetch(requestUrl, { credentials: "include" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
       const result = transform ? transform(json) : json;
 
-      cache.set(url, { data: result, fetchedAt: Date.now() });
+      cache.set(requestUrl, { data: result, fetchedAt: Date.now() });
 
-      if (isMounted.current) {
+      // Ignore responses for a URL we've already moved away from.
+      if (isMounted.current && currentUrl.current === requestUrl) {
         setData(result);
         setRevalidating(false);
       }
     } catch {
-      if (isMounted.current) setRevalidating(false);
+      if (isMounted.current && currentUrl.current === requestUrl) setRevalidating(false);
     }
   };
 
   useEffect(() => {
     isMounted.current = true;
+    currentUrl.current = url;
 
     // Always revalidate in background on mount
     fetchData();
 
+    // Polling: skip while the browser tab is hidden (no point refreshing a page
+    // nobody sees) and catch up immediately when it becomes visible again.
     let timer;
+    const poll = () => {
+      if (document.visibilityState === "visible") fetchData();
+    };
     if (pollInterval > 0) {
-      timer = setInterval(fetchData, pollInterval);
+      timer = setInterval(poll, pollInterval);
+      document.addEventListener("visibilitychange", poll);
     }
 
     return () => {
       isMounted.current = false;
-      if (timer) clearInterval(timer);
+      if (timer) {
+        clearInterval(timer);
+        document.removeEventListener("visibilitychange", poll);
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [url]);
+  }, [url, pollInterval]);
 
   return { data, revalidating, revalidate: fetchData };
 }

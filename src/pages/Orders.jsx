@@ -14,6 +14,9 @@ import {
   Calendar,
 } from 'lucide-react';
 import { useStaleData, invalidateCache } from '../hooks/useStaleData';
+import LoadMoreButton from '../components/LoadMoreButton';
+import { TAB_NAMES as tabs, isDineIn, matchesTab } from '../../server/shared/orderTabs.js';
+import { usePagedList, useDebouncedValue, localDayRange, buildUrl } from '../hooks/usePagedList';
 
 function timeAgo(dateStr) {
   if (!dateStr) return '';
@@ -61,16 +64,6 @@ function getYesterdayStr() {
   return `${y}-${m}-${day}`;
 }
 
-function getOrderDateStr(timestamp) {
-  if (!timestamp) return '';
-  const d = new Date(timestamp);
-  if (isNaN(d)) return '';
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
-
 const statusConfig = {
   preparing: { bg: 'bg-yellow-100 text-yellow-800 border-yellow-200', label: 'Preparing' },
   on_the_way: { bg: 'bg-blue-100 text-blue-800 border-blue-200', label: 'On the Way' },
@@ -79,41 +72,11 @@ const statusConfig = {
   cancelled: { bg: 'bg-red-100 text-red-800 border-red-200', label: 'Cancelled' },
 };
 
-const tabs = ['All', 'Dine In', 'Preparing', 'On the Way', 'Delivered', 'Served', 'Cancelled'];
-
-function isDineIn(order) {
-  const addr = (order?.deliveryAddress || '').toLowerCase();
-  const phone = (order?.phone || '').toLowerCase();
-  const name = (order?.profileName || '').toLowerCase();
-  return addr.includes('dine in') || addr.includes('dine-in') || phone.includes('dine') || name.includes('dine-in');
-}
-
-function isServed(order) {
-  const status = (order?.status || '').toLowerCase();
-  return status === 'served' || (isDineIn(order) && status === 'delivered');
-}
-
-function isDelivered(order) {
-  const status = (order?.status || '').toLowerCase();
-  return status === 'delivered' && !isDineIn(order);
-}
-
-function tabToStatus(tab) {
-  return tab.toLowerCase().replace(/ /g, '_');
-}
-
-function matchesTabFilter(order, tab) {
-  if (tab === 'All') return true;
-  if (tab === 'Dine In') return isDineIn(order);
-  if (tab === 'Served') return isServed(order);
-  if (tab === 'Delivered') return isDelivered(order);
-  if (tab === 'Preparing') return (order?.status || 'preparing').toLowerCase() === 'preparing';
-  if (tab === 'On the Way') return (order?.status || '').toLowerCase() === 'on_the_way';
-  if (tab === 'Cancelled') return (order?.status || '').toLowerCase() === 'cancelled';
-  return (order?.status || 'preparing').toLowerCase() === tabToStatus(tab);
-}
-
 const ORDERS_URL = '/api/orders';
+const PAGE_SIZE = 20;
+// Auto-refresh for views where new orders or status changes can appear.
+const LIVE_REFRESH_MS = 20000;
+const HISTORY_TABS = new Set(['Delivered', 'Served', 'Cancelled']);
 
 export default function Orders() {
   const [activeTab, setActiveTab] = useState('All');
@@ -133,9 +96,33 @@ export default function Orders() {
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
 
-  const { data: rawOrders, revalidating, revalidate } = useStaleData(ORDERS_URL, {
-    transform: (d) => (Array.isArray(d) ? d : []),
+  // Every filter is part of the URL: the server filters/paginates, and each
+  // filter combination gets its own stale-while-revalidate cache entry.
+  const debouncedSearch = useDebouncedValue(search.trim());
+  const range = localDayRange(selectedDate);
+  const listUrl = buildUrl(ORDERS_URL, {
+    tab: activeTab,
+    from: range?.from,
+    to: range?.to,
+    q: debouncedSearch,
+    limit: PAGE_SIZE,
   });
+  const {
+    data: rawOrders,
+    items: orders,
+    hasMore,
+    loadMore,
+    loadingMore,
+    revalidating,
+    revalidate,
+    mutateItems,
+  } = usePagedList(listUrl, 'orders', {
+    // Live views refresh on their own; finished orders and past days only on open.
+    pollInterval: !HISTORY_TABS.has(activeTab) && (!selectedDate || selectedDate === getTodayStr())
+      ? LIVE_REFRESH_MS
+      : 0,
+  });
+  const counts = rawOrders?.counts || {};
 
   // Fetch menu items for the item picker
   const { data: rawMenu } = useStaleData('/api/menu');
@@ -146,26 +133,27 @@ export default function Orders() {
     ? menuList
     : menuList.filter((m) => m.category === selectedCategory);
 
-  const orders = rawOrders ?? [];
-
   const updateStatus = useCallback(async (orderId, newStatus) => {
     setUpdatingId(orderId);
     try {
-      await fetch(`/api/orders/${orderId}/status`, {
+      const res = await fetch(`/api/orders/${orderId}/status`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({ status: newStatus }),
       });
-      // Invalidate cache so next revalidate returns fresh data
-      invalidateCache(ORDERS_URL);
+      if (res.ok) {
+        // Rows from "Load more" pages live outside the cache -- patch them locally.
+        mutateItems((items) => items.map((o) => (o.orderId === orderId ? { ...o, status: newStatus } : o)));
+      }
+      // Refresh page 1 + tab counts.
       revalidate();
     } catch {
       // silent
     } finally {
       setUpdatingId(null);
     }
-  }, [revalidate]);
+  }, [revalidate, mutateItems]);
 
   // Handle adding an item from menu to current order
   const handleAddItemToOrder = () => {
@@ -241,7 +229,6 @@ export default function Orders() {
 
       const data = await res.json();
       if (res.ok && data.success) {
-        invalidateCache(ORDERS_URL);
         invalidateCache('/api/analytics');
         await revalidate();
         setIsCreateModalOpen(false);
@@ -262,32 +249,9 @@ export default function Orders() {
     }
   };
 
-  const filtered = orders.filter((o) => {
-    // 1. Date Filter
-    if (selectedDate) {
-      const orderDate = getOrderDateStr(o.timestamp);
-      if (orderDate !== selectedDate) return false;
-    }
-
-    // 2. Tab Filter
-    if (!matchesTabFilter(o, activeTab)) return false;
-
-    // 3. Search Filter
-    if (!search.trim()) return true;
-    const q = search.toLowerCase();
-    // items may be an array (MongoDB) or a JSON string (legacy)
-    const itemsStr = Array.isArray(o.items)
-      ? o.items.map((it) => it.name || '').join(', ')
-      : (o.items || '');
-    return (
-      (o.orderId || '').toLowerCase().includes(q) ||
-      (o.profileName || '').toLowerCase().includes(q) ||
-      (o.phone || '').toLowerCase().includes(q) ||
-      itemsStr.toLowerCase().includes(q) ||
-      (o.deliveryAddress || '').toLowerCase().includes(q) ||
-      (o.notes || '').toLowerCase().includes(q)
-    );
-  });
+  // Server already applied date + tab + search. Re-check the tab only, so an order
+  // whose status was just changed leaves the current tab without waiting for a refetch.
+  const filtered = orders.filter((o) => matchesTab(o, activeTab));
 
   // Only show spinner on absolute first load (no stale data yet)
   if (!rawOrders && revalidating) {
@@ -356,12 +320,7 @@ export default function Orders() {
               {tab}
               {tab !== 'All' && (
                 <span className="ml-1.5 text-xs opacity-75">
-                  ({
-                    orders.filter((o) => {
-                      if (selectedDate && getOrderDateStr(o.timestamp) !== selectedDate) return false;
-                      return matchesTabFilter(o, tab);
-                    }).length
-                  })
+                  ({counts[tab] ?? 0})
                 </span>
               )}
             </button>
@@ -625,6 +584,14 @@ export default function Orders() {
             );
           })}
         </div>
+      )}
+
+      {hasMore && (
+        <LoadMoreButton
+          onClick={loadMore}
+          loading={loadingMore}
+          label={`Load more (${Math.max(0, (counts[activeTab] ?? 0) - orders.length)} remaining)`}
+        />
       )}
 
       {/* Create Manual Dine-In Order Modal */}

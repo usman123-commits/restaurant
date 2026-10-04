@@ -1,13 +1,43 @@
 import { Router } from 'express';
 import { Order } from '../models.js';
+import { ORDER_TABS, getTab, tabMongoFilter } from '../shared/orderTabs.js';
+import { clampLimit, parseCursor, fetchPage, timeRange, searchFilter, and } from '../lib/paging.js';
 
 const router = Router();
 
-// GET /api/orders - all orders, newest first
+// Live kitchen queues (tabs marked `active`): never hide an order behind "Load more".
+const ACTIVE_TAB_LIMIT = 500;
+
+const SEARCH_FIELDS = ['orderId', 'profileName', 'phone', 'items.name', 'deliveryAddress', 'notes'];
+
+// GET /api/orders?tab=All&from=<ISO>&to=<ISO>&q=&limit=20&before=<cursor>
+//   -> { orders, hasMore, nextCursor, counts? }   (counts only on the first page)
+// Without `limit` it returns the legacy plain array of every order.
 router.get('/', async (req, res) => {
   try {
-    const orders = await Order.find().sort({ timestamp: -1 }).lean();
-    res.json(orders);
+    if (req.query.limit === undefined) {
+      const orders = await Order.find().sort({ timestamp: -1 }).lean();
+      return res.json(orders);
+    }
+
+    const tab = getTab(req.query.tab);
+    const limit = tab.active
+      ? ACTIVE_TAB_LIMIT
+      : clampLimit(req.query.limit, 20, 100);
+    const cursor = parseCursor(req.query.before);
+
+    // Date + search apply to both the list and the tab counts; the tab only to the list.
+    const base = and(timeRange(req.query.from, req.query.to), searchFilter(req.query.q, SEARCH_FIELDS));
+
+    const pagePromise = fetchPage(Order, and(base, tabMongoFilter(tab.name)), { limit, cursor });
+    const countsPromise = cursor
+      ? null
+      : Promise.all(
+          ORDER_TABS.map(async ({ name }) => [name, await Order.countDocuments(and(base, tabMongoFilter(name)))])
+        ).then(Object.fromEntries);
+
+    const [page, counts] = await Promise.all([pagePromise, countsPromise]);
+    res.json({ orders: page.items, hasMore: page.hasMore, nextCursor: page.nextCursor, ...(counts && { counts }) });
   } catch (err) {
     console.error('Error fetching orders:', err.message);
     res.status(500).json({ error: 'Failed to fetch orders' });

@@ -30,6 +30,10 @@ const orderSchema = new Schema({
   notes:           { type: String, default: '' },
 }, schemaOpts);
 
+// Keyset pagination (server/lib/paging.js).
+orderSchema.index({ timestamp: -1, _id: -1 });
+orderSchema.index({ status: 1, timestamp: -1, _id: -1 });
+
 export const Order = mongoose.models.Order || mongoose.model('Order', orderSchema);
 
 // ─── Conversation ─────────────────────────────────────────────────────────────
@@ -41,6 +45,9 @@ const conversationSchema = new Schema({
   timestamp:   { type: Date, default: Date.now },
   sessionId:   { type: String, default: '' },
 }, schemaOpts);
+
+// Serves "latest N messages for a phone" and the cursor for "load older".
+conversationSchema.index({ phone: 1, timestamp: -1, _id: -1 });
 
 export const Conversation = mongoose.models.Conversation || mongoose.model('Conversation', conversationSchema);
 
@@ -67,6 +74,9 @@ const spendSchema = new Schema({
   amount:        { type: Number, required: true },
   paymentMethod: { type: String, default: 'Cash' },
 }, schemaOpts);
+
+// Keyset pagination (server/lib/paging.js).
+spendSchema.index({ timestamp: -1, _id: -1 });
 
 export const Spend = mongoose.models.Spend || mongoose.model('Spend', spendSchema);
 
