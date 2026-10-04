@@ -7,13 +7,16 @@
 // A rule is one of:
 //   { status: [...] }   order status is one of these ('' = missing/empty)
 //   { dineIn: bool }    order is / is not dine-in (see isDineIn)
+//   { type: [...] }     orderType is one of these
 //   { all: [rules] }    every rule matches
 //   { any: [rules] }    at least one rule matches
 
-// Orders carry an explicit orderType ('dine_in' | 'delivery'). Orders saved
-// before that field existed (or by an n8n workflow not yet updated) fall back
-// to guessing from text, exactly as before.
-export const ORDER_TYPES = ['dine_in', 'delivery'];
+// Orders carry an explicit orderType:
+//   'dine_in'    -- eaten at the restaurant (dashboard form); finishes as "Served"
+//   'delivery'   -- WhatsApp bot orders; preparing -> on_the_way -> delivered
+//   'phone_call' -- taken over the phone (dashboard form); same flow as delivery
+// Orders saved before orderType existed fall back to guessing dine-in from text.
+export const ORDER_TYPES = ['dine_in', 'delivery', 'phone_call'];
 
 const DINE_IN_MATCHERS = [
   { field: 'deliveryAddress', pattern: 'dine[ -]in' },
@@ -24,6 +27,7 @@ const DINE_IN_MATCHERS = [
 export const ORDER_TABS = [
   { name: 'All',        rule: { all: [] } },
   { name: 'Dine In',    rule: { dineIn: true } },
+  { name: 'On Call',    rule: { type: ['phone_call'] } },
   { name: 'Preparing',  rule: { status: ['preparing', ''] }, active: true },
   { name: 'On the Way', rule: { status: ['on_the_way'] },    active: true },
   { name: 'Delivered',  rule: { all: [{ status: ['delivered'] }, { dineIn: false }] } },
@@ -48,6 +52,10 @@ export function guessDineInFromText(order) {
   return DINE_IN_REGEXES.some(({ field, re }) => re.test(String(order?.[field] ?? '')));
 }
 
+export function isPhoneCall(order) {
+  return order?.orderType === 'phone_call';
+}
+
 export function isDineIn(order) {
   const type = order?.orderType;
   if (type) return type === 'dine_in';
@@ -63,6 +71,7 @@ function matchRule(order, rule) {
   if (rule.any) return rule.any.some((r) => matchRule(order, r));
   if (rule.status) return rule.status.includes(normStatus(order));
   if ('dineIn' in rule) return isDineIn(order) === rule.dineIn;
+  if (rule.type) return rule.type.includes(order?.orderType);
   throw new Error(`Unknown order tab rule: ${JSON.stringify(rule)}`);
 }
 
@@ -98,6 +107,7 @@ function ruleToMongo(rule) {
     return { status: { $in: values } };
   }
   if ('dineIn' in rule) return rule.dineIn ? DINE_IN_MONGO : NOT_DINE_IN_MONGO;
+  if (rule.type) return { orderType: { $in: rule.type } };
   throw new Error(`Unknown order tab rule: ${JSON.stringify(rule)}`);
 }
 

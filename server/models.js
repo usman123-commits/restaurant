@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import { HANDOFF_REASON_KEYS } from './shared/handoffReasons.js';
+import { ORDER_TYPES } from './shared/orderTabs.js';
 
 const { Schema } = mongoose;
 
@@ -27,9 +28,9 @@ const orderSchema = new Schema({
   items:           [{ name: String, qty: Number, price: Number }],
   totalAmount:     { type: Number, default: 0 },
   deliveryAddress: { type: String, default: 'Dine In' },
-  // 'dine_in' | 'delivery'. No default on purpose: a missing value means "unknown"
-  // and the dashboard falls back to guessing from the address (server/shared/orderTabs.js).
-  orderType:       { type: String, enum: ['dine_in', 'delivery'] },
+  // One of ORDER_TYPES (server/shared/orderTabs.js). No default on purpose: a missing
+  // value means "unknown" and the dashboard falls back to guessing from the address.
+  orderType:       { type: String, enum: ORDER_TYPES },
   status:          { type: String, enum: ['preparing', 'on_the_way', 'delivered', 'cancelled'], default: 'preparing' },
   notes:           { type: String, default: '' },
 }, schemaOpts);

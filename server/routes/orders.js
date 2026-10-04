@@ -79,11 +79,21 @@ router.post('/', async (req, res) => {
       deliveryAddress = 'Dine In',
       notes = '',
       status = 'preparing',
-      orderType = 'dine_in', // this endpoint backs the dashboard's dine-in order form
+      orderType = 'dine_in', // this endpoint backs the dashboard's New Order form
     } = req.body;
 
     if (!ORDER_TYPES.includes(orderType)) {
       return res.status(400).json({ error: `orderType must be one of: ${ORDER_TYPES.join(', ')}` });
+    }
+    // Phone orders go out with a rider: they need a number to call back and a real address.
+    if (orderType === 'phone_call') {
+      if (!String(phone || '').trim()) {
+        return res.status(400).json({ error: 'Phone number is required for phone orders' });
+      }
+      const addr = String(deliveryAddress || '').trim();
+      if (!addr || /^dine[ -]?in$/i.test(addr)) {
+        return res.status(400).json({ error: 'Delivery address is required for phone orders' });
+      }
     }
 
     if (!Array.isArray(items) || items.length === 0) {
@@ -110,7 +120,7 @@ router.post('/', async (req, res) => {
       orderId,
       timestamp,
       phone: finalPhone,
-      profileName: profileName.trim() || 'Dine-In Customer',
+      profileName: profileName.trim() || (orderType === 'phone_call' ? 'Phone Customer' : 'Dine-In Customer'),
       items: parsedItems,
       totalAmount: computedTotal,
       deliveryAddress: deliveryAddress.trim() || 'Dine In',
