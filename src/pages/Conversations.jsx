@@ -4,6 +4,7 @@ import { MessageSquare, ChevronRight, Search, Loader2, PhoneForwarded, Check } f
 import { useStaleData, invalidateCache } from '../hooks/useStaleData';
 import { useDebouncedValue, buildUrl } from '../hooks/usePagedList';
 
+import { ConversationsSkeleton } from '../components/Skeleton';
 function timeAgo(dateStr) {
   if (!dateStr) return '';
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -105,11 +106,7 @@ export default function Conversations() {
 
   // Only block on absolute first load (no stale data yet)
   if (!firstPage && revalidating) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <Loader2 size={32} className="animate-spin-slow text-brand-500" />
-      </div>
-    );
+    return <ConversationsSkeleton />;
   }
 
   return (

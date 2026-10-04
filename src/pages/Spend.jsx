@@ -23,6 +23,7 @@ import { usePagedList, usePrefetchInto, useDebouncedValue, localDayRange, buildU
 import LoadMoreButton from '../components/LoadMoreButton';
 import LoadingBar from '../components/LoadingBar';
 
+import { SpendSkeleton } from '../components/Skeleton';
 function fmt(n) {
   return Number(n || 0).toLocaleString();
 }
@@ -234,11 +235,7 @@ export default function Spend() {
 
   // Only block on first ever load
   if (!rawSpendData && revalidating) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="w-8 h-8 border-4 border-brand-500 border-t-transparent rounded-full animate-spin-slow" />
-      </div>
-    );
+    return <SpendSkeleton />;
   }
 
   return (

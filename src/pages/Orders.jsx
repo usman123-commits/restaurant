@@ -19,6 +19,7 @@ import LoadingBar from '../components/LoadingBar';
 import { TAB_NAMES as tabs, isDineIn, matchesTab } from '../../server/shared/orderTabs.js';
 import { usePagedList, usePrefetchInto, useDebouncedValue, localDayRange, buildUrl } from '../hooks/usePagedList';
 
+import { OrdersSkeleton } from '../components/Skeleton';
 function timeAgo(dateStr) {
   if (!dateStr) return '';
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -261,11 +262,7 @@ export default function Orders() {
 
   // Only show spinner on absolute first load (no stale data yet)
   if (!rawOrders && revalidating) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="w-8 h-8 border-4 border-brand-500 border-t-transparent rounded-full animate-spin-slow" />
-      </div>
-    );
+    return <OrdersSkeleton />;
   }
 
   return (

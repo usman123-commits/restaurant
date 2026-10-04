@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { PhoneForwarded, CheckCircle } from 'lucide-react';
 import { useStaleData, invalidateCache } from '../hooks/useStaleData';
 
+import { HandoffsSkeleton } from '../components/Skeleton';
 function timeAgo(dateStr) {
   if (!dateStr) return '';
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -38,11 +39,7 @@ export default function Handoffs() {
 
   // Only block on absolute first load (no stale data yet)
   if (!rawData && revalidating) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="w-8 h-8 border-4 border-brand-500 border-t-transparent rounded-full animate-spin-slow" />
-      </div>
-    );
+    return <HandoffsSkeleton />;
   }
 
   if (handoffs.length === 0) {

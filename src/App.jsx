@@ -11,17 +11,44 @@ import Handoffs from './pages/Handoffs';
 import Spend from './pages/Spend';
 import Settings from './pages/Settings';
 
+// "This browser was logged in last time." Lets a reload draw the app (sidebar +
+// page skeletons) immediately while /api/auth/check runs in parallel with the
+// page's data requests, instead of a blank screen waiting on the check first.
+// It is only a UI hint: no data is shown until the API (which checks the real,
+// httpOnly session cookie on every request) answers.
+const LOGGED_IN_HINT = 'otto.dashboard.loggedIn';
+
+function readHint() {
+  try { return localStorage.getItem(LOGGED_IN_HINT) === '1'; } catch { return false; }
+}
+
+function writeHint(on) {
+  try {
+    if (on) localStorage.setItem(LOGGED_IN_HINT, '1');
+    else localStorage.removeItem(LOGGED_IN_HINT);
+  } catch { /* storage unavailable: just no optimistic shell */ }
+}
+
 export default function App() {
-  const [authenticated, setAuthenticated] = useState(null);
+  // null = unknown (no hint: wait for the check), true/false = known.
+  // With the hint we start as true and let the check correct us.
+  const [authenticated, setAuthenticatedState] = useState(() => (readHint() ? true : null));
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  const setAuthenticated = (value) => {
+    writeHint(value === true);
+    setAuthenticatedState(value);
+  };
 
   useEffect(() => {
     fetch('/api/auth/check', { credentials: 'include' })
       .then((res) => res.json())
       .then((data) => setAuthenticated(data.authenticated === true))
       .catch(() => setAuthenticated(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Only on a browser with no hint (first visit, after logout): nothing to draw yet.
   if (authenticated === null) {
     return (
       <div className="flex items-center justify-center h-screen bg-gray-50">

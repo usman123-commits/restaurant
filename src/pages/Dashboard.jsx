@@ -11,6 +11,7 @@ import {
 import StatCard from '../components/StatCard';
 import { useStaleData } from '../hooks/useStaleData';
 
+import { DashboardSkeleton } from '../components/Skeleton';
 function fmt(n) {
   return Number(n || 0).toLocaleString('en-PK');
 }
@@ -61,11 +62,7 @@ export default function Dashboard() {
 
   // Only block render if we have absolutely no data yet (very first ever load)
   if (!data && revalidating) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="w-8 h-8 border-4 border-brand-500 border-t-transparent rounded-full animate-spin-slow" />
-      </div>
-    );
+    return <DashboardSkeleton />;
   }
 
   if (!data) {

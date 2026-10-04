@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { UtensilsCrossed, Plus, X, ChevronDown, ChevronRight, Pencil, Check, Search, Trash2, Loader2 } from 'lucide-react';
 import { useStaleData, invalidateCache } from '../hooks/useStaleData';
 
+import { MenuSkeleton } from '../components/Skeleton';
 function fmt(n) {
   if (n == null || n === '') return '0';
   const num = Number(String(n).replace(/[^0-9.\-]/g, ''));
@@ -135,11 +136,7 @@ export default function MenuManager() {
 
   // Only block on absolute first load (no stale data yet)
   if (!rawItems && revalidating) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <Spinner size={32} className="text-brand-500" />
-      </div>
-    );
+    return <MenuSkeleton />;
   }
 
   return (

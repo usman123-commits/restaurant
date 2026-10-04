@@ -2,6 +2,7 @@ import { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, MessageSquare, Loader2, PhoneForwarded, Check } from 'lucide-react';
 import { useStaleData, invalidateCache } from '../hooks/useStaleData';
+import { Skeleton, ChatBubblesSkeleton } from '../components/Skeleton';
 
 function formatTime(dateStr) {
   if (!dateStr) return '';
@@ -153,12 +154,16 @@ export default function ConversationDetail() {
         </button>
         <div className="flex-1">
           <div className="flex items-center gap-2">
-            <h2 className="text-lg font-bold text-gray-900">{profileName}</h2>
+            {rawData ? (
+              <h2 className="text-lg font-bold text-gray-900">{profileName}</h2>
+            ) : (
+              <Skeleton className="h-6 w-40 my-0.5" />
+            )}
             {revalidating && (
               <span className="w-1.5 h-1.5 rounded-full bg-brand-400 animate-pulse" title="Refreshing..." />
             )}
           </div>
-          <p className="text-sm text-gray-500">{phone} -- {total} messages</p>
+          <p className="text-sm text-gray-500">{phone}{rawData ? ` -- ${total} messages` : ''}</p>
         </div>
 
         {/* Manual Handoff Button in Detail */}
@@ -195,9 +200,7 @@ export default function ConversationDetail() {
         }}
       >
         {!rawData && revalidating ? (
-          <div className="flex items-center justify-center h-40">
-            <Loader2 size={32} className="animate-spin-slow text-brand-500" />
-          </div>
+          <ChatBubblesSkeleton />
         ) : messages.length === 0 ? (
           <div className="text-center py-20 text-gray-400">
             <MessageSquare size={48} className="mx-auto mb-3 opacity-40" />
