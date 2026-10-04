@@ -220,6 +220,7 @@ export default function Orders() {
           profileName: profileName.trim() || 'Dine-In Customer',
           phone: finalPhone,
           deliveryAddress: 'Dine In',
+          orderType: 'dine_in',
           items: orderItems,
           totalAmount: orderTotal,
           notes: notes.trim(),
