@@ -413,7 +413,7 @@ export default function Orders() {
             return (
               <div
                 key={order.orderId}
-                className="bg-white rounded-xl shadow-sm p-5 animate-fade-in"
+                className="bg-white rounded-xl shadow-sm p-5 animate-fade-in flex flex-col h-full"
               >
                 {/* Header */}
                 <div className="flex items-start justify-between mb-3">
@@ -456,7 +456,7 @@ export default function Orders() {
                 </div>
 
                 {/* Footer info */}
-                <div className="border-t border-gray-100 pt-3 space-y-1.5">
+                <div className="border-t border-gray-100 pt-3 pb-3 space-y-1.5">
                   <div className="flex items-center justify-between">
                     <span className="text-sm font-semibold text-gray-900">
                       Total: Rs. {fmt(order.totalAmount)}
@@ -495,7 +495,8 @@ export default function Orders() {
                 </div>
 
                 {/* Status update */}
-                <div className="mt-3 pt-3 border-t border-gray-100">
+                {/* mt-auto pins the status control to the card bottom, so it lines up across a row */}
+                <div className="mt-auto pt-3 border-t border-gray-100">
                   {(() => {
                     const currentStatus = (order.status || 'preparing').toLowerCase();
                     const isFinal = currentStatus === 'delivered' || currentStatus === 'cancelled';

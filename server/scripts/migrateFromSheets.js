@@ -17,6 +17,7 @@ dotenv.config();
 import mongoose from 'mongoose';
 import { initAuth, getSheetData } from '../sheets.js';
 import { MenuItem, Order, Conversation, Handoff, Spend, BotConfig } from '../models.js';
+import { classifyLegacyReason } from '../shared/handoffReasons.js';
 
 const MONGODB_URI = process.env.MONGODB_URI;
 if (!MONGODB_URI) {
@@ -132,7 +133,10 @@ async function migrateHandoffs() {
     timestamp:   row.timestamp   ? new Date(row.timestamp) : new Date(),
     phone:       row.phone       || '',
     profileName: row.profileName || '',
-    reason:      row.reason      || '',
+    // Sheet rows hold free text: keep it as description, map to a reason key only
+    // when unambiguous (otherwise left empty -> shows under "Other").
+    reason:      classifyLegacyReason(row.reason).confident ? classifyLegacyReason(row.reason).key : undefined,
+    description: row.reason      || '',
     lastMessage: row.lastMessage || 'none',
     status:      (row.status === 'resolved' || row.status === 'active') ? row.status : 'active',
     resolvedAt:  row.resolvedAt  ? new Date(row.resolvedAt) : undefined,

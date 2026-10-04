@@ -1,8 +1,13 @@
 import { useState } from 'react';
 import { PhoneForwarded, CheckCircle } from 'lucide-react';
-import { useStaleData, invalidateCache } from '../hooks/useStaleData';
-
+import { invalidateCache } from '../hooks/useStaleData';
+import { usePagedList, usePrefetchInto, localDayRange, buildUrl } from '../hooks/usePagedList';
+import LoadMoreButton from '../components/LoadMoreButton';
+import LoadingBar from '../components/LoadingBar';
+import DateFilterBar, { localDateStr } from '../components/DateFilterBar';
 import { HandoffsSkeleton } from '../components/Skeleton';
+import { HANDOFF_REASONS, OTHER_REASON, reasonLabel } from '../../server/shared/handoffReasons.js';
+
 function timeAgo(dateStr) {
   if (!dateStr) return '';
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -17,117 +22,215 @@ function timeAgo(dateStr) {
 }
 
 const HANDOFFS_URL = '/api/handoffs';
+const ACTIVE_HANDOFFS_URL = '/api/handoffs/active-phones';
+const PAGE_SIZE = 20;
+const LIVE_REFRESH_MS = 30000;
+
+const REASON_TABS = [{ key: 'All', label: 'All' }, ...HANDOFF_REASONS, OTHER_REASON];
+const STATUS_TABS = [
+  { key: 'active', label: 'Active' },
+  { key: 'resolved', label: 'Resolved' },
+  { key: 'all', label: 'All' },
+];
+
+const REASON_STYLE = {
+  dashboard:     'bg-gray-100 text-gray-700 border-gray-200',
+  cancellation:  'bg-red-50 text-red-700 border-red-100',
+  modification:  'bg-blue-50 text-blue-700 border-blue-100',
+  talk_to_staff: 'bg-purple-50 text-purple-700 border-purple-100',
+  complaint:     'bg-orange-50 text-orange-700 border-orange-100',
+  other:         'bg-gray-50 text-gray-500 border-gray-200',
+};
 
 export default function Handoffs() {
+  // Default to the work queue: unresolved handoffs.
+  const [status, setStatus] = useState('active');
+  const [reason, setReason] = useState('All');
+  const [selectedDate, setSelectedDate] = useState('');
   const [resolving, setResolving] = useState(null);
 
-  const { data: rawData, revalidating, revalidate } = useStaleData(HANDOFFS_URL);
-  const handoffs = Array.isArray(rawData) ? rawData : (rawData?.handoffs || []);
+  // Every filter is part of the URL (= cache key); the server filters and paginates.
+  const range = localDayRange(selectedDate);
+  const filterParams = { status, from: range?.from, to: range?.to, limit: PAGE_SIZE };
+  // Param order matters: this string is the cache key, shared with the prefetch below.
+  const urlForReason = (r) => buildUrl(HANDOFFS_URL, { reason: r, ...filterParams });
+  const listUrl = urlForReason(reason);
+
+  // First page of every reason tab in one request, so switching tabs is instant.
+  usePrefetchInto(buildUrl(`${HANDOFFS_URL}/tabs`, filterParams), urlForReason);
+
+  const {
+    data,
+    items: handoffs,
+    hasMore,
+    loadMore,
+    loadingMore,
+    revalidating,
+    isPlaceholder,
+    revalidate,
+    mutateItems,
+  } = usePagedList(listUrl, 'handoffs', {
+    // New handoffs can arrive any time; resolved history and past days only on open.
+    pollInterval: status !== 'resolved' && (!selectedDate || selectedDate === localDateStr()) ? LIVE_REFRESH_MS : 0,
+  });
+  const reasonCounts = data?.reasonCounts || {};
+  const statusCounts = data?.statusCounts || {};
 
   const resolve = async (id) => {
     setResolving(id);
     try {
-      await fetch(`/api/handoffs/${id}/resolve`, {
-        method: 'PATCH',
-        credentials: 'include',
-      });
-      invalidateCache(HANDOFFS_URL);
+      const res = await fetch(`/api/handoffs/${id}/resolve`, { method: 'PATCH', credentials: 'include' });
+      if (res.ok) {
+        // Rows from "Load more" pages live outside the cache -- patch them locally.
+        mutateItems((items) => items.map((h) => (h._id === id ? { ...h, status: 'resolved' } : h)));
+        invalidateCache(ACTIVE_HANDOFFS_URL);
+      }
       await revalidate();
     } catch { /* silent */ }
     setResolving(null);
   };
 
-  // Only block on absolute first load (no stale data yet)
-  if (!rawData && revalidating) {
+  // Only on the very first load (nothing to show yet).
+  if (!data && revalidating) {
     return <HandoffsSkeleton />;
   }
 
-  if (handoffs.length === 0) {
-    return (
-      <div className="space-y-6">
-        <div className="flex items-center gap-2">
-          <h2 className="text-2xl font-bold text-gray-900">Handoffs</h2>
-          {revalidating && (
-            <span className="w-2 h-2 rounded-full bg-brand-400 animate-pulse" title="Refreshing..." />
-          )}
-        </div>
-        <div className="text-center py-20 text-gray-400">
-          <PhoneForwarded size={48} className="mx-auto mb-3 opacity-40" />
-          <p>No handoffs at the moment</p>
-        </div>
-      </div>
-    );
-  }
+  // A just-resolved card leaves the Active view at once, without waiting for the refetch.
+  const visible = isPlaceholder || status !== 'active'
+    ? handoffs
+    : handoffs.filter((h) => h.status !== 'resolved');
+  const tabs = REASON_TABS.filter((t) => t.key !== OTHER_REASON.key || reasonCounts[OTHER_REASON.key] > 0 || reason === OTHER_REASON.key);
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-2">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <h2 className="text-2xl font-bold text-gray-900">Handoffs</h2>
-        {revalidating && (
-          <span className="w-2 h-2 rounded-full bg-brand-400 animate-pulse" title="Refreshing..." />
-        )}
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="flex items-center bg-white p-1 rounded-xl shadow-2xs border border-gray-200 text-xs font-semibold">
+            {STATUS_TABS.map((t) => (
+              <button
+                key={t.key}
+                type="button"
+                onClick={() => setStatus(t.key)}
+                className={`px-3 py-1.5 rounded-lg transition-all ${
+                  status === t.key ? 'bg-brand-50 text-brand-600 font-bold border border-brand-200' : 'text-gray-500 hover:text-gray-900'
+                }`}
+              >
+                {t.label}
+                <span className="ml-1 opacity-75">({statusCounts[t.key] ?? 0})</span>
+              </button>
+            ))}
+          </div>
+          <DateFilterBar value={selectedDate} onChange={setSelectedDate} />
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-        {handoffs.map((h) => {
-          const isActive = h.status !== 'resolved';
-          return (
-            <div
-              key={h._id}
-              className={`bg-white rounded-xl shadow-sm p-5 animate-fade-in ${
-                isActive ? 'ring-2 ring-brand-200' : ''
-              }`}
-            >
-              <div className="flex items-start justify-between mb-3">
-                <div>
-                  <p className="font-semibold text-gray-900">
-                    {h.profileName || h.name || h.phone}
-                  </p>
-                  <p className="text-sm text-gray-500">{h.phone}</p>
-                </div>
-                <span
-                  className={`text-xs font-medium px-2.5 py-1 rounded-full ${
-                    isActive
-                      ? 'bg-red-100 text-red-700'
-                      : 'bg-green-100 text-green-700'
-                  }`}
-                >
-                  {isActive ? 'Active' : 'Resolved'}
-                </span>
-              </div>
+      {/* Reason tabs */}
+      <div className="flex gap-2 flex-wrap bg-white/40 p-1.5 rounded-2xl">
+        {tabs.map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            onClick={() => setReason(t.key)}
+            className={`px-3.5 py-2 rounded-lg text-sm font-medium transition-colors ${
+              reason === t.key
+                ? 'bg-brand-500 text-white shadow-xs'
+                : 'bg-white text-gray-600 hover:bg-gray-100 shadow-2xs border border-gray-100'
+            }`}
+          >
+            {t.label}
+            <span className="ml-1.5 text-xs opacity-75">({reasonCounts[t.key] ?? 0})</span>
+          </button>
+        ))}
+      </div>
 
-              {h.reason && (
-                <div className="mb-3">
-                  <p className="text-xs font-medium text-gray-500 mb-1">Reason</p>
-                  <p className="text-sm text-gray-700">{h.reason}</p>
-                </div>
-              )}
-
-              {h.lastMessage && (
-                <div className="mb-3">
-                  <p className="text-xs font-medium text-gray-500 mb-1">Last Message</p>
-                  <p className="text-sm text-gray-600 line-clamp-2">{h.lastMessage}</p>
-                </div>
-              )}
-
-              <div className="flex items-center justify-between pt-3 border-t border-gray-100">
-                <span className="text-xs text-gray-400">
-                  {timeAgo(h.timestamp || h.createdAt)}
-                </span>
-                {isActive && (
-                  <button
-                    onClick={() => resolve(h._id)}
-                    disabled={resolving === h._id}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-green-500 hover:bg-green-600 text-white rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
-                  >
-                    <CheckCircle size={14} />
-                    {resolving === h._id ? 'Resolving...' : 'Resolve'}
-                  </button>
-                )}
-              </div>
+      {/* Cards -- dimmed with a loading bar while a new filter loads */}
+      <div className="relative">
+        <div className="absolute -top-3 inset-x-0"><LoadingBar active={isPlaceholder} /></div>
+        <div className={`space-y-6 transition-opacity duration-150 ${isPlaceholder ? 'opacity-50 pointer-events-none' : ''}`}>
+          {visible.length === 0 ? (
+            <div className="text-center py-20 text-gray-400">
+              <PhoneForwarded size={48} className="mx-auto mb-3 opacity-40" />
+              <p>No handoffs match these filters</p>
             </div>
-          );
-        })}
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+              {visible.map((h) => {
+                const isActive = h.status !== 'resolved';
+                const reasonKey = REASON_STYLE[h.reason] ? h.reason : 'other';
+                return (
+                  // Same sections in the same order on every card, fixed-height text blocks
+                  // and the footer pinned to the bottom, so cards line up across a row.
+                  <div
+                    key={h._id}
+                    className={`bg-white rounded-xl shadow-sm p-5 animate-fade-in flex flex-col h-full ${
+                      isActive ? 'ring-2 ring-brand-200' : ''
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-3 mb-3">
+                      <div className="min-w-0">
+                        <p className="font-semibold text-gray-900 truncate">{h.profileName || h.phone}</p>
+                        <p className="text-sm text-gray-500">{h.phone}</p>
+                      </div>
+                      <span
+                        className={`shrink-0 text-xs font-medium px-2.5 py-1 rounded-full ${
+                          isActive ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
+                        }`}
+                      >
+                        {isActive ? 'Active' : 'Resolved'}
+                      </span>
+                    </div>
+
+                    <div className="mb-3">
+                      <span className={`inline-block text-xs font-semibold px-2.5 py-1 rounded-md border ${REASON_STYLE[reasonKey]}`}>
+                        {reasonLabel(h.reason)}
+                      </span>
+                    </div>
+
+                    <div className="border-t border-gray-100 pt-3 mb-3">
+                      <p className="text-xs font-medium text-gray-500 mb-1">Description</p>
+                      <p className="text-sm text-gray-700 line-clamp-2 min-h-[2.5rem]" title={h.description || ''}>
+                        {h.description || <span className="text-gray-400 italic">No description</span>}
+                      </p>
+                    </div>
+
+                    <div className="mb-3">
+                      <p className="text-xs font-medium text-gray-500 mb-1">Last Message</p>
+                      <p className="text-sm text-gray-600 line-clamp-2 min-h-[2.5rem]" title={h.lastMessage || ''}>
+                        {h.lastMessage && h.lastMessage !== 'none'
+                          ? h.lastMessage
+                          : <span className="text-gray-400 italic">No message</span>}
+                      </p>
+                    </div>
+
+                    <div className="mt-auto flex items-center justify-between pt-3 border-t border-gray-100 min-h-[2.75rem]">
+                      <span className="text-xs text-gray-400">{timeAgo(h.timestamp || h.createdAt)}</span>
+                      {isActive && (
+                        <button
+                          type="button"
+                          onClick={() => resolve(h._id)}
+                          disabled={resolving === h._id}
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-green-500 hover:bg-green-600 text-white rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
+                        >
+                          <CheckCircle size={14} />
+                          {resolving === h._id ? 'Resolving...' : 'Resolve'}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {hasMore && (
+            <LoadMoreButton
+              onClick={loadMore}
+              loading={loadingMore}
+              label={`Load more (${Math.max(0, (reasonCounts[reason] ?? 0) - handoffs.length)} remaining)`}
+            />
+          )}
+        </div>
       </div>
     </div>
   );
