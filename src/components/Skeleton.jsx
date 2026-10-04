@@ -272,7 +272,7 @@ function HandoffCardSkeleton() {
 export function HandoffsSkeleton() {
   return (
     <div className="space-y-6">
-      <PageTitle right={<div className="flex gap-3"><Skeleton className="h-10 w-60 rounded-xl" /><Skeleton className="h-10 w-80 rounded-xl" /></div>}>
+      <PageTitle right={<div className="flex gap-3"><Skeleton className="h-10 w-44 rounded-xl" /><Skeleton className="h-10 w-80 rounded-xl" /></div>}>
         Handoffs
       </PageTitle>
       <div className="bg-white/40 p-1.5 rounded-2xl">
