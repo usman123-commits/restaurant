@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { MessageSquare, ChevronRight, Search, Loader2, PhoneForwarded, Check } from 'lucide-react';
 import { useStaleData, invalidateCache } from '../hooks/useStaleData';
+import { useDebouncedValue, buildUrl } from '../hooks/usePagedList';
 
 function timeAgo(dateStr) {
   if (!dateStr) return '';
@@ -20,17 +21,20 @@ function timeAgo(dateStr) {
 const PAGE_SIZE = 20;
 
 export default function Conversations() {
-  const [extraPages, setExtraPages] = useState([]);
+  // Pages loaded via "Load more", tagged with the URL (= search) they belong to.
+  const [extra, setExtra] = useState({ url: null, items: [] });
   const [loadingMore, setLoadingMore] = useState(false);
   const [search, setSearch] = useState('');
   const [handingOffPhone, setHandingOffPhone] = useState(null);
   const [handoffSuccess, setHandoffSuccess] = useState({});
   const navigate = useNavigate();
 
+  // Search runs on the server, so it covers every conversation, not just loaded ones.
+  const debouncedSearch = useDebouncedValue(search.trim());
+  const listUrl = buildUrl('/api/conversations', { limit: PAGE_SIZE, offset: 0, q: debouncedSearch });
+
   // SWR for the first page
-  const { data: firstPage, revalidating } = useStaleData(
-    `/api/conversations?limit=${PAGE_SIZE}&offset=0`
-  );
+  const { data: firstPage, revalidating } = useStaleData(listUrl);
 
   // SWR for active handoffs
   const { data: rawHandoffs, revalidate: revalidateHandoffs } = useStaleData('/api/handoffs');
@@ -45,18 +49,28 @@ export default function Conversations() {
   const total = firstPage?.total || 0;
   const hasMore = firstPage?.hasMore || false;
 
-  // All conversations = first page + any extra pages loaded via "Load more"
-  const conversations = [...firstPageList, ...extraPages];
+  // First page + extra pages. Dedupe by phone: the list is ordered by latest
+  // message, so a conversation can move between pages while you browse.
+  const seenPhones = new Set();
+  const conversations = [...firstPageList, ...(extra.url === listUrl ? extra.items : [])].filter((c) => {
+    if (seenPhones.has(c.phone)) return false;
+    seenPhones.add(c.phone);
+    return true;
+  });
 
   const loadMore = async () => {
+    const requestUrl = listUrl;
     setLoadingMore(true);
     try {
-      const res = await fetch(
-        `/api/conversations?limit=${PAGE_SIZE}&offset=${conversations.length}`,
-        { credentials: 'include' }
-      );
+      const res = await fetch(requestUrl.replace('offset=0', `offset=${conversations.length}`), {
+        credentials: 'include',
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-      setExtraPages((prev) => [...prev, ...(data.conversations || [])]);
+      setExtra((prev) => ({
+        url: requestUrl,
+        items: [...(prev.url === requestUrl ? prev.items : []), ...(data.conversations || [])],
+      }));
     } catch { /* silent */ }
     setLoadingMore(false);
   };
@@ -87,15 +101,7 @@ export default function Conversations() {
     setHandingOffPhone(null);
   };
 
-  const filtered = conversations.filter((conv) => {
-    if (!search.trim()) return true;
-    const q = search.toLowerCase();
-    return (
-      (conv.profileName || '').toLowerCase().includes(q) ||
-      (conv.phone || '').toLowerCase().includes(q) ||
-      (conv.lastMessage || '').toLowerCase().includes(q)
-    );
-  });
+  const filtered = conversations;
 
   // Only block on absolute first load (no stale data yet)
   if (!firstPage && revalidating) {
@@ -207,7 +213,7 @@ export default function Conversations() {
           </div>
 
           {/* Load more */}
-          {hasMore && !search && (
+          {hasMore && (
             <div className="flex justify-center">
               <button
                 onClick={loadMore}

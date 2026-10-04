@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { Conversation } from '../models.js';
-import { clampLimit, parseCursor, fetchPage } from '../lib/paging.js';
+import { clampLimit, parseCursor, fetchPage, escapeRegex } from '../lib/paging.js';
 
 const router = Router();
 
@@ -22,36 +22,66 @@ async function customerNamesByPhone(phones) {
   return Object.fromEntries(rows.map((r) => [r._id, r.profileName]));
 }
 
-// GET /api/conversations?limit=20&offset=0
+// Phones whose number or customer name contains `q` (null = no search).
+async function phonesMatching(q) {
+  const term = String(q || '').trim().slice(0, 100);
+  if (!term) return null;
+  const re = new RegExp(escapeRegex(term), 'i');
+  const byName = await Conversation.distinct('phone', { ...customerMessageMatch, profileName: re });
+  return { $or: [{ phone: re }, { phone: { $in: byName } }] };
+}
+
+// GET /api/conversations?limit=20&offset=0&q=
 router.get('/', async (req, res) => {
   try {
-    const limit  = parseInt(req.query.limit  || '20', 10);
-    const offset = parseInt(req.query.offset || '0',  10);
+    const limit  = clampLimit(req.query.limit, 20, 100);
+    const offset = Math.max(0, parseInt(req.query.offset || '0', 10) || 0);
+    const match  = await phonesMatching(req.query.q);
 
-    // Aggregate: group by phone, pick last message & count
-    const agg = await Conversation.aggregate([
-      { $sort: { timestamp: 1 } },
+    // Latest message per phone. Sorting on the { phone, timestamp } index lets
+    // MongoDB jump to the newest message of each phone (DISTINCT_SCAN) instead of
+    // reading and sorting every message ever logged.
+    const [agg] = await Conversation.aggregate([
+      ...(match ? [{ $match: match }] : []),
+      { $sort: { phone: 1, timestamp: -1, _id: -1 } },
       {
         $group: {
           _id:           '$phone',
-          lastMessage:   { $last: '$message' },
-          lastTimestamp: { $last: '$timestamp' },
-          messageCount:  { $sum: 1 },
+          lastMessage:   { $first: '$message' },
+          lastTimestamp: { $first: '$timestamp' },
         },
       },
-      { $sort: { lastTimestamp: -1 } },
+      { $sort: { lastTimestamp: -1, _id: 1 } },
+      {
+        $facet: {
+          page:  [{ $skip: offset }, { $limit: limit }],
+          total: [{ $count: 'n' }],
+        },
+      },
     ]);
 
-    const total = agg.length;
-    const pageRows = agg.slice(offset, offset + limit);
-    const names = await customerNamesByPhone(pageRows.map((c) => c._id));
+    const pageRows = agg?.page || [];
+    const total = agg?.total?.[0]?.n || 0;
+    const phones = pageRows.map((c) => c._id);
+
+    // Names and message counts only for the 20 phones on this page.
+    const [names, countRows] = await Promise.all([
+      customerNamesByPhone(phones),
+      phones.length
+        ? Conversation.aggregate([
+            { $match: { phone: { $in: phones } } },
+            { $group: { _id: '$phone', n: { $sum: 1 } } },
+          ])
+        : [],
+    ]);
+    const counts = Object.fromEntries(countRows.map((r) => [r._id, r.n]));
 
     const page = pageRows.map((c) => ({
       phone:         c._id,
       profileName:   names[c._id] || '',
       lastMessage:   c.lastMessage || '',
       lastTimestamp: c.lastTimestamp,
-      messageCount:  c.messageCount,
+      messageCount:  counts[c._id] || 0,
     }));
 
     res.json({ conversations: page, total, hasMore: offset + limit < total });
