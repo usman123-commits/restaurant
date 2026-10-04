@@ -14,6 +14,7 @@ import analyticsRoutes from './routes/analytics.js';
 import handoffsRoutes from './routes/handoffs.js';
 import settingsRoutes from './routes/settings.js';
 import spendRoutes from './routes/spend.js';
+import blockedRoutes from './routes/blocked.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -38,6 +39,7 @@ app.use('/api/analytics', analyticsRoutes);
 app.use('/api/handoffs', handoffsRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/spend', spendRoutes);
+app.use('/api/blocked', blockedRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

@@ -90,6 +90,17 @@ spendSchema.index({ timestamp: -1, _id: -1 });
 
 export const Spend = mongoose.models.Spend || mongoose.model('Spend', spendSchema);
 
+// ─── BlockedNumber ───────────────────────────────────────────────────────────
+// Numbers the WhatsApp bot ignores (managed in Handoffs -> Blocked numbers).
+// phone: digits with country code, as WhatsApp sends it ("923115185775").
+const blockedNumberSchema = new Schema({
+  phone:       { type: String, required: true, unique: true },
+  profileName: { type: String, default: '' },
+  note:        { type: String, default: '' },
+}, schemaOpts);
+
+export const BlockedNumber = mongoose.models.BlockedNumber || mongoose.model('BlockedNumber', blockedNumberSchema);
+
 // ─── BotConfig ───────────────────────────────────────────────────────────────
 const botConfigSchema = new Schema({
   key:   { type: String, required: true, unique: true },

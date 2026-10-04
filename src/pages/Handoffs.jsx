@@ -1,12 +1,14 @@
 import { useState } from 'react';
-import { PhoneForwarded, CheckCircle } from 'lucide-react';
-import { invalidateCache } from '../hooks/useStaleData';
+import { PhoneForwarded, CheckCircle, Ban } from 'lucide-react';
+import { invalidateCache, useStaleData } from '../hooks/useStaleData';
 import { usePagedList, usePrefetchInto, localDayRange, buildUrl } from '../hooks/usePagedList';
 import LoadMoreButton from '../components/LoadMoreButton';
 import LoadingBar from '../components/LoadingBar';
 import DateFilterBar, { localDateStr } from '../components/DateFilterBar';
 import { HandoffsSkeleton } from '../components/Skeleton';
 import { HANDOFF_REASONS, OTHER_REASON, reasonLabel } from '../../server/shared/handoffReasons.js';
+import { normalizeNumber } from '../../server/shared/phone.js';
+import BlockedNumbersPanel from '../components/BlockedNumbersPanel';
 
 function timeAgo(dateStr) {
   if (!dateStr) return '';
@@ -23,6 +25,7 @@ function timeAgo(dateStr) {
 
 const HANDOFFS_URL = '/api/handoffs';
 const ACTIVE_HANDOFFS_URL = '/api/handoffs/active-phones';
+const BLOCKED_URL = '/api/blocked';
 const PAGE_SIZE = 20;
 const LIVE_REFRESH_MS = 30000;
 
@@ -48,6 +51,41 @@ export default function Handoffs() {
   const [reason, setReason] = useState('All');
   const [selectedDate, setSelectedDate] = useState('');
   const [resolving, setResolving] = useState(null);
+  const [showBlocked, setShowBlocked] = useState(false);
+  // 'add' while the panel's form blocks a number; the phone while that row / card is busy
+  const [blockBusy, setBlockBusy] = useState(null);
+
+  // Numbers the bot ignores (owner's number, spam). The WhatsApp bridge reads the same list.
+  const { data: blockedData, revalidating: blockedLoading, revalidate: revalidateBlocked } = useStaleData(BLOCKED_URL);
+  const blockedNumbers = blockedData?.numbers || [];
+  const blockedSet = new Set(blockedNumbers.map((n) => n.phone));
+  const isBlocked = (phone) => blockedSet.has(normalizeNumber(phone));
+
+  const block = async ({ phone, profileName = '', note = '' }, busyKey) => {
+    setBlockBusy(busyKey);
+    let ok = false;
+    try {
+      const res = await fetch(BLOCKED_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ phone, profileName, note }),
+      });
+      ok = res.ok;
+      await revalidateBlocked();
+    } catch { /* silent */ }
+    setBlockBusy(null);
+    return ok;
+  };
+
+  const unblock = async (phone) => {
+    setBlockBusy(phone);
+    try {
+      await fetch(`${BLOCKED_URL}/${encodeURIComponent(phone)}`, { method: 'DELETE', credentials: 'include' });
+      await revalidateBlocked();
+    } catch { /* silent */ }
+    setBlockBusy(null);
+  };
 
   // Every filter is part of the URL (= cache key); the server filters and paginates.
   const range = localDayRange(selectedDate);
@@ -122,8 +160,28 @@ export default function Handoffs() {
             ))}
           </div>
           <DateFilterBar value={selectedDate} onChange={setSelectedDate} />
+          <button
+            type="button"
+            onClick={() => setShowBlocked((v) => !v)}
+            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold border shadow-2xs transition-colors ${
+              showBlocked ? 'bg-red-50 text-red-700 border-red-200' : 'bg-white text-gray-600 border-gray-200 hover:text-gray-900'
+            }`}
+          >
+            <Ban size={14} />
+            Blocked numbers ({blockedNumbers.length})
+          </button>
         </div>
       </div>
+
+      {showBlocked && (
+        <BlockedNumbersPanel
+          numbers={blockedNumbers}
+          loading={blockedLoading}
+          busy={blockBusy}
+          onBlock={(n) => block(n, 'add')}
+          onUnblock={unblock}
+        />
+      )}
 
       {/* Reason tabs */}
       <div className="flex gap-2 flex-wrap bg-white/40 p-1.5 rounded-2xl">
@@ -205,6 +263,23 @@ export default function Handoffs() {
 
                     <div className="mt-auto flex items-center justify-between pt-3 border-t border-gray-100 min-h-[2.75rem]">
                       <span className="text-xs text-gray-400">{timeAgo(h.timestamp || h.createdAt)}</span>
+                      <div className="flex items-center gap-2">
+                      {isBlocked(h.phone) ? (
+                        <span className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-red-600 bg-red-50 rounded-lg">
+                          <Ban size={14} /> Blocked
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          title="The bot will ignore this number"
+                          onClick={() => block({ phone: h.phone, profileName: h.profileName || '', note: `Blocked from a ${reasonLabel(h.reason).toLowerCase()} handoff` }, h.phone)}
+                          disabled={blockBusy === h.phone}
+                          className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
+                        >
+                          <Ban size={14} />
+                          {blockBusy === h.phone ? 'Blocking...' : 'Block'}
+                        </button>
+                      )}
                       {isActive && (
                         <button
                           type="button"
@@ -216,6 +291,7 @@ export default function Handoffs() {
                           {resolving === h._id ? 'Resolving...' : 'Resolve'}
                         </button>
                       )}
+                      </div>
                     </div>
                   </div>
                 );
