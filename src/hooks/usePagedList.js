@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { useStaleData } from './useStaleData';
+import { useStaleData, seedCache } from './useStaleData';
 
 const EMPTY = { url: null, items: [], nextCursor: null };
 
@@ -29,12 +29,15 @@ function withCursor(url, cursor) {
  *   Otherwise a row pushed off the first page by a newer row (after revalidation)
  *   would fall into the gap between page 1 and page 2 and vanish.
  *
+ * - While a new filter's first page is loading (`isPlaceholder`), the previous list
+ *   stays on screen unchanged (including its "Load more" pages) and Load more is off.
+ *
  * Server contract: `{ [itemsKey]: [...newest first], nextCursor }`, accepts `&before=<cursor>`.
  *
- * @returns {{ data, items, hasMore, loadMore, loadingMore, revalidating, revalidate, mutateItems }}
+ * @returns {{ data, items, hasMore, loadMore, loadingMore, revalidating, isPlaceholder, revalidate, mutateItems }}
  */
 export function usePagedList(url, itemsKey, options) {
-  const { data, revalidating, revalidate } = useStaleData(url, options);
+  const { data, revalidating, isPlaceholder, revalidate } = useStaleData(url, options);
   const [extra, setExtra] = useState(EMPTY);
   const [loadingMore, setLoadingMore] = useState(false);
   const urlRef = useRef(url);
@@ -43,8 +46,13 @@ export function usePagedList(url, itemsKey, options) {
   const extraActive = extra.url === url;
   const firstItems = data?.[itemsKey] || [];
   // First page wins on duplicates: it's the freshest copy (e.g. after a status change).
-  const items = dedupeById([...firstItems, ...(extraActive ? extra.items : [])]);
-  const nextCursor = extraActive ? extra.nextCursor : (data?.nextCursor ?? null);
+  const freshItems = dedupeById([...firstItems, ...(extraActive ? extra.items : [])]);
+
+  // Keep the last real list on screen while a new filter loads.
+  const lastItems = useRef(freshItems);
+  if (!isPlaceholder) lastItems.current = freshItems;
+  const items = isPlaceholder ? lastItems.current : freshItems;
+  const nextCursor = isPlaceholder ? null : (extraActive ? extra.nextCursor : (data?.nextCursor ?? null));
 
   const loadMore = async () => {
     if (!nextCursor || loadingMore) return;
@@ -72,7 +80,33 @@ export function usePagedList(url, itemsKey, options) {
     setExtra((prev) => (prev.url ? { ...prev, items: fn(prev.items) } : prev));
   }, []);
 
-  return { data, items, hasMore: Boolean(nextCursor), loadMore, loadingMore, revalidating, revalidate, mutateItems };
+  return { data, items, hasMore: Boolean(nextCursor), loadMore, loadingMore, revalidating, isPlaceholder, revalidate, mutateItems };
+}
+
+/**
+ * Pre-fill the cache for sibling views (e.g. every Orders tab) with ONE batch request,
+ * so the first click on any of them is instant.
+ *
+ * @param {string|null} batchUrl  - Endpoint returning `{ [key]: payload }`. Re-runs when it changes.
+ * @param {(key: string) => string} urlForKey - The exact URL the page would request for that key
+ *   (must match what it passes to usePagedList, or the cache entry is never used).
+ */
+export function usePrefetchInto(batchUrl, urlForKey) {
+  const urlForKeyRef = useRef(urlForKey);
+  urlForKeyRef.current = urlForKey;
+  useEffect(() => {
+    if (!batchUrl) return undefined;
+    let cancelled = false;
+    const startedAt = Date.now();
+    fetch(batchUrl, { credentials: 'include' })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((batch) => {
+        if (cancelled || !batch) return;
+        Object.entries(batch).forEach(([key, payload]) => seedCache(urlForKeyRef.current(key), payload, startedAt));
+      })
+      .catch(() => { /* prefetch is best-effort */ });
+    return () => { cancelled = true; };
+  }, [batchUrl]);
 }
 
 /** Value that only updates after `delay` ms without changes (for search boxes). */

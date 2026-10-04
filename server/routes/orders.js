@@ -10,6 +10,23 @@ const ACTIVE_TAB_LIMIT = 500;
 
 const SEARCH_FIELDS = ['orderId', 'profileName', 'phone', 'items.name', 'deliveryAddress', 'notes'];
 
+function baseFilter(query) {
+  // Date + search apply to both the list and the tab counts; the tab only to the list.
+  return and(timeRange(query.from, query.to), searchFilter(query.q, SEARCH_FIELDS));
+}
+
+function tabCounts(base) {
+  return Promise.all(
+    ORDER_TABS.map(async ({ name }) => [name, await Order.countDocuments(and(base, tabMongoFilter(name)))])
+  ).then(Object.fromEntries);
+}
+
+async function tabPage(tab, base, limitParam, cursor) {
+  const limit = tab.active ? ACTIVE_TAB_LIMIT : clampLimit(limitParam, 20, 100);
+  const page = await fetchPage(Order, and(base, tabMongoFilter(tab.name)), { limit, cursor });
+  return { orders: page.items, hasMore: page.hasMore, nextCursor: page.nextCursor };
+}
+
 // GET /api/orders?tab=All&from=<ISO>&to=<ISO>&q=&limit=20&before=<cursor>
 //   -> { orders, hasMore, nextCursor, counts? }   (counts only on the first page)
 // Without `limit` it returns the legacy plain array of every order.
@@ -20,27 +37,34 @@ router.get('/', async (req, res) => {
       return res.json(orders);
     }
 
-    const tab = getTab(req.query.tab);
-    const limit = tab.active
-      ? ACTIVE_TAB_LIMIT
-      : clampLimit(req.query.limit, 20, 100);
     const cursor = parseCursor(req.query.before);
-
-    // Date + search apply to both the list and the tab counts; the tab only to the list.
-    const base = and(timeRange(req.query.from, req.query.to), searchFilter(req.query.q, SEARCH_FIELDS));
-
-    const pagePromise = fetchPage(Order, and(base, tabMongoFilter(tab.name)), { limit, cursor });
-    const countsPromise = cursor
-      ? null
-      : Promise.all(
-          ORDER_TABS.map(async ({ name }) => [name, await Order.countDocuments(and(base, tabMongoFilter(name)))])
-        ).then(Object.fromEntries);
-
-    const [page, counts] = await Promise.all([pagePromise, countsPromise]);
-    res.json({ orders: page.items, hasMore: page.hasMore, nextCursor: page.nextCursor, ...(counts && { counts }) });
+    const base = baseFilter(req.query);
+    const [page, counts] = await Promise.all([
+      tabPage(getTab(req.query.tab), base, req.query.limit, cursor),
+      cursor ? null : tabCounts(base),
+    ]);
+    res.json({ ...page, ...(counts && { counts }) });
   } catch (err) {
     console.error('Error fetching orders:', err.message);
     res.status(500).json({ error: 'Failed to fetch orders' });
+  }
+});
+
+// GET /api/orders/tabs?from=<ISO>&to=<ISO>&q=&limit=20
+//   -> { [tabName]: <same payload as GET /api/orders?tab=<tabName>> }
+// First page of every tab in one request, so the dashboard can pre-fill its cache
+// and switching tabs is instant. Counts are computed once and shared.
+router.get('/tabs', async (req, res) => {
+  try {
+    const base = baseFilter(req.query);
+    const [pages, counts] = await Promise.all([
+      Promise.all(ORDER_TABS.map((tab) => tabPage(tab, base, req.query.limit, null))),
+      tabCounts(base),
+    ]);
+    res.json(Object.fromEntries(ORDER_TABS.map((tab, i) => [tab.name, { ...pages[i], counts }])));
+  } catch (err) {
+    console.error('Error fetching order tabs:', err.message);
+    res.status(500).json({ error: 'Failed to fetch order tabs' });
   }
 });
 

@@ -110,6 +110,39 @@ router.get('/', async (req, res) => {
   }
 });
 
+// GET /api/spend/categories?categories=All,Staff,...&from=<ISO>&to=<ISO>&q=&tz=-300&limit=20
+//   -> { [category]: <same payload as GET /api/spend?category=<category>> }
+// First page of every category button in one request, so the dashboard can pre-fill
+// its cache and switching category is instant. Stats are computed once and shared.
+router.get('/categories', async (req, res) => {
+  try {
+    const categories = String(req.query.categories || 'All')
+      .split(',')
+      .map((c) => c.trim())
+      .filter(Boolean)
+      .slice(0, 20);
+    const limit = clampLimit(req.query.limit, 20, 100);
+    const base = and(timeRange(req.query.from, req.query.to), searchFilter(req.query.q, SEARCH_FIELDS));
+
+    const [pages, stats, filtered] = await Promise.all([
+      Promise.all(categories.map((c) => fetchPage(Spend, and(base, categoryFilter(c)), { limit, cursor: null }))),
+      summary(req.query.tz),
+      filteredStats(base),
+    ]);
+
+    res.json(Object.fromEntries(categories.map((c, i) => [c, {
+      spends: pages[i].items,
+      hasMore: pages[i].hasMore,
+      nextCursor: pages[i].nextCursor,
+      ...stats,
+      ...filtered,
+    }])));
+  } catch (err) {
+    console.error('Error fetching spend categories:', err.message);
+    res.status(500).json({ error: 'Failed to fetch spend categories' });
+  }
+});
+
 // POST /api/spend - add a new spend record
 router.post('/', async (req, res) => {
   try {
