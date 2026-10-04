@@ -1,31 +1,11 @@
 import { Router } from 'express';
 import { Order } from '../models.js';
+import { ORDER_TABS, getTab, tabMongoFilter } from '../shared/orderTabs.js';
 import { clampLimit, parseCursor, fetchPage, timeRange, searchFilter, and } from '../lib/paging.js';
 
 const router = Router();
 
-// Tab rules -- mirror of matchesTabFilter() in src/pages/Orders.jsx. Keep the two in sync.
-// "Served" is not a stored status: it's a dine-in order whose status is 'delivered'.
-const DINE_IN_CLAUSES = [
-  { deliveryAddress: /dine[ -]in/i },
-  { phone: /dine/i },
-  { profileName: /dine-in/i },
-];
-const DINE_IN = { $or: DINE_IN_CLAUSES };
-const NOT_DINE_IN = { $nor: DINE_IN_CLAUSES };
-
-const TAB_FILTERS = {
-  'All':        {},
-  'Dine In':    DINE_IN,
-  'Preparing':  { status: { $in: ['preparing', null, ''] } },
-  'On the Way': { status: 'on_the_way' },
-  'Delivered':  and({ status: 'delivered' }, NOT_DINE_IN),
-  'Served':     { $or: [{ status: 'served' }, and({ status: 'delivered' }, DINE_IN)] },
-  'Cancelled':  { status: 'cancelled' },
-};
-
-// Live kitchen queues: never hide an active order behind "Load more".
-const ACTIVE_TABS = new Set(['Preparing', 'On the Way']);
+// Live kitchen queues (tabs marked `active`): never hide an order behind "Load more".
 const ACTIVE_TAB_LIMIT = 500;
 
 const SEARCH_FIELDS = ['orderId', 'profileName', 'phone', 'items.name', 'deliveryAddress', 'notes'];
@@ -40,8 +20,8 @@ router.get('/', async (req, res) => {
       return res.json(orders);
     }
 
-    const tab = TAB_FILTERS[req.query.tab] ? req.query.tab : 'All';
-    const limit = ACTIVE_TABS.has(tab)
+    const tab = getTab(req.query.tab);
+    const limit = tab.active
       ? ACTIVE_TAB_LIMIT
       : clampLimit(req.query.limit, 20, 100);
     const cursor = parseCursor(req.query.before);
@@ -49,11 +29,11 @@ router.get('/', async (req, res) => {
     // Date + search apply to both the list and the tab counts; the tab only to the list.
     const base = and(timeRange(req.query.from, req.query.to), searchFilter(req.query.q, SEARCH_FIELDS));
 
-    const pagePromise = fetchPage(Order, and(base, TAB_FILTERS[tab]), { limit, cursor });
+    const pagePromise = fetchPage(Order, and(base, tabMongoFilter(tab.name)), { limit, cursor });
     const countsPromise = cursor
       ? null
       : Promise.all(
-          Object.entries(TAB_FILTERS).map(async ([name, f]) => [name, await Order.countDocuments(and(base, f))])
+          ORDER_TABS.map(async ({ name }) => [name, await Order.countDocuments(and(base, tabMongoFilter(name)))])
         ).then(Object.fromEntries);
 
     const [page, counts] = await Promise.all([pagePromise, countsPromise]);

@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { useStaleData, invalidateCache } from '../hooks/useStaleData';
 import LoadMoreButton from '../components/LoadMoreButton';
+import { TAB_NAMES as tabs, isDineIn, matchesTab } from '../../server/shared/orderTabs.js';
 import { usePagedList, useDebouncedValue, localDayRange, buildUrl } from '../hooks/usePagedList';
 
 function timeAgo(dateStr) {
@@ -71,44 +72,11 @@ const statusConfig = {
   cancelled: { bg: 'bg-red-100 text-red-800 border-red-200', label: 'Cancelled' },
 };
 
-const tabs = ['All', 'Dine In', 'Preparing', 'On the Way', 'Delivered', 'Served', 'Cancelled'];
-
-function isDineIn(order) {
-  const addr = (order?.deliveryAddress || '').toLowerCase();
-  const phone = (order?.phone || '').toLowerCase();
-  const name = (order?.profileName || '').toLowerCase();
-  return addr.includes('dine in') || addr.includes('dine-in') || phone.includes('dine') || name.includes('dine-in');
-}
-
-function isServed(order) {
-  const status = (order?.status || '').toLowerCase();
-  return status === 'served' || (isDineIn(order) && status === 'delivered');
-}
-
-function isDelivered(order) {
-  const status = (order?.status || '').toLowerCase();
-  return status === 'delivered' && !isDineIn(order);
-}
-
-function tabToStatus(tab) {
-  return tab.toLowerCase().replace(/ /g, '_');
-}
-
-// Mirrored server-side in server/routes/orders.js (TAB_FILTERS). Keep the two in sync.
-// Used here only to hide a row instantly after its status changes out of the current tab.
-function matchesTabFilter(order, tab) {
-  if (tab === 'All') return true;
-  if (tab === 'Dine In') return isDineIn(order);
-  if (tab === 'Served') return isServed(order);
-  if (tab === 'Delivered') return isDelivered(order);
-  if (tab === 'Preparing') return (order?.status || 'preparing').toLowerCase() === 'preparing';
-  if (tab === 'On the Way') return (order?.status || '').toLowerCase() === 'on_the_way';
-  if (tab === 'Cancelled') return (order?.status || '').toLowerCase() === 'cancelled';
-  return (order?.status || 'preparing').toLowerCase() === tabToStatus(tab);
-}
-
 const ORDERS_URL = '/api/orders';
 const PAGE_SIZE = 20;
+// Auto-refresh for views where new orders or status changes can appear.
+const LIVE_REFRESH_MS = 20000;
+const HISTORY_TABS = new Set(['Delivered', 'Served', 'Cancelled']);
 
 export default function Orders() {
   const [activeTab, setActiveTab] = useState('All');
@@ -148,7 +116,12 @@ export default function Orders() {
     revalidating,
     revalidate,
     mutateItems,
-  } = usePagedList(listUrl, 'orders');
+  } = usePagedList(listUrl, 'orders', {
+    // Live views refresh on their own; finished orders and past days only on open.
+    pollInterval: !HISTORY_TABS.has(activeTab) && (!selectedDate || selectedDate === getTodayStr())
+      ? LIVE_REFRESH_MS
+      : 0,
+  });
   const counts = rawOrders?.counts || {};
 
   // Fetch menu items for the item picker
@@ -278,7 +251,7 @@ export default function Orders() {
 
   // Server already applied date + tab + search. Re-check the tab only, so an order
   // whose status was just changed leaves the current tab without waiting for a refetch.
-  const filtered = orders.filter((o) => matchesTabFilter(o, activeTab));
+  const filtered = orders.filter((o) => matchesTab(o, activeTab));
 
   // Only show spinner on absolute first load (no stale data yet)
   if (!rawOrders && revalidating) {

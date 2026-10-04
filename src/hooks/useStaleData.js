@@ -21,6 +21,7 @@ const cache = new Map();
  * @param {string}   url           - The API endpoint to fetch.
  * @param {object}   [options]
  * @param {number}   [options.pollInterval]  - Auto-refresh interval in ms (0 = no polling).
+ *                                           Paused while the browser tab is hidden.
  * @param {function} [options.transform]     - Optional transform applied to raw JSON before storing.
  * @returns {{ data: any, revalidating: boolean, revalidate: function }}
  */
@@ -69,17 +70,26 @@ export function useStaleData(url, { pollInterval = 0, transform } = {}) {
     // Always revalidate in background on mount
     fetchData();
 
+    // Polling: skip while the browser tab is hidden (no point refreshing a page
+    // nobody sees) and catch up immediately when it becomes visible again.
     let timer;
+    const poll = () => {
+      if (document.visibilityState === "visible") fetchData();
+    };
     if (pollInterval > 0) {
-      timer = setInterval(fetchData, pollInterval);
+      timer = setInterval(poll, pollInterval);
+      document.addEventListener("visibilitychange", poll);
     }
 
     return () => {
       isMounted.current = false;
-      if (timer) clearInterval(timer);
+      if (timer) {
+        clearInterval(timer);
+        document.removeEventListener("visibilitychange", poll);
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [url]);
+  }, [url, pollInterval]);
 
   return { data, revalidating, revalidate: fetchData };
 }
