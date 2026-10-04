@@ -27,11 +27,11 @@ const PAGE_SIZE = 20;
 const LIVE_REFRESH_MS = 30000;
 
 const REASON_TABS = [{ key: 'All', label: 'All' }, ...HANDOFF_REASONS, OTHER_REASON];
-// Queue vs history. "All reasons" lives in the reason tabs below; mixing open and
-// closed handoffs in one list isn't needed, so there is no "all" status here.
+// Labelled "Both" (not "All") so it isn't confused with the "All" reason tab below.
 const STATUS_TABS = [
   { key: 'active', label: 'Active' },
   { key: 'resolved', label: 'Resolved' },
+  { key: 'all', label: 'Both' },
 ];
 
 const REASON_STYLE = {
