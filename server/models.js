@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { HANDOFF_REASON_KEYS } from './shared/handoffReasons.js';
 
 const { Schema } = mongoose;
 
@@ -59,13 +60,19 @@ const handoffSchema = new Schema({
   timestamp:   { type: Date, default: Date.now },
   phone:       { type: String, required: true },
   profileName: { type: String, default: '' },
-  reason:      { type: String, default: '' },
+  // One of HANDOFF_REASON_KEYS (server/shared/handoffReasons.js). Free text goes in description.
+  reason:      { type: String, enum: HANDOFF_REASON_KEYS },
+  description: { type: String, default: '' },
   lastMessage: { type: String, default: 'none' },
   status:      { type: String, enum: ['active', 'resolved'], default: 'active' },
   resolvedAt:  { type: Date },
   note:        { type: String, default: '' },
   assignedTo:  { type: String, default: '' },
 }, schemaOpts);
+
+// Keyset pagination (server/lib/paging.js) and the active-phones lookup.
+handoffSchema.index({ timestamp: -1, _id: -1 });
+handoffSchema.index({ status: 1, timestamp: -1, _id: -1 });
 
 export const Handoff = mongoose.models.Handoff || mongoose.model('Handoff', handoffSchema);
 

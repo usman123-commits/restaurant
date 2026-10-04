@@ -5,6 +5,9 @@ import { useStaleData, invalidateCache } from '../hooks/useStaleData';
 import { useDebouncedValue, buildUrl } from '../hooks/usePagedList';
 
 import { ConversationsSkeleton } from '../components/Skeleton';
+
+// Phones with an unresolved handoff (small lookup, not the full handoff history).
+const ACTIVE_HANDOFFS_URL = '/api/handoffs/active-phones';
 function timeAgo(dateStr) {
   if (!dateStr) return '';
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -38,13 +41,8 @@ export default function Conversations() {
   const { data: firstPage, revalidating, isPlaceholder } = useStaleData(listUrl);
 
   // SWR for active handoffs
-  const { data: rawHandoffs, revalidate: revalidateHandoffs } = useStaleData('/api/handoffs');
-  const handoffsList = Array.isArray(rawHandoffs) ? rawHandoffs : (rawHandoffs?.handoffs || []);
-  const activeHandoffPhones = new Set(
-    handoffsList
-      .filter((h) => h.status !== 'resolved' && h.phone)
-      .map((h) => String(h.phone))
-  );
+  const { data: rawHandoffs, revalidate: revalidateHandoffs } = useStaleData(ACTIVE_HANDOFFS_URL);
+  const activeHandoffPhones = new Set((rawHandoffs?.phones || []).map(String));
 
   const firstPageList = firstPage?.conversations || [];
   const total = firstPage?.total || 0;
@@ -86,13 +84,14 @@ export default function Conversations() {
         body: JSON.stringify({
           phone: conv.phone,
           profileName: conv.profileName || conv.phone,
-          reason: 'Handed off manually by dashboard',
+          reason: 'dashboard',
+          description: 'Handed off manually from the dashboard',
           lastMessage: conv.lastMessage || 'none',
         }),
       });
       const data = await res.json();
       if (data.success) {
-        invalidateCache('/api/handoffs');
+        invalidateCache(ACTIVE_HANDOFFS_URL);
         setHandoffSuccess((prev) => ({ ...prev, [conv.phone]: true }));
         revalidateHandoffs();
       }

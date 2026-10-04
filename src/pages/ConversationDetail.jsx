@@ -4,6 +4,9 @@ import { ArrowLeft, MessageSquare, Loader2, PhoneForwarded, Check } from 'lucide
 import { useStaleData, invalidateCache } from '../hooks/useStaleData';
 import { Skeleton, ChatBubblesSkeleton } from '../components/Skeleton';
 
+
+// Phones with an unresolved handoff (small lookup, not the full handoff history).
+const ACTIVE_HANDOFFS_URL = '/api/handoffs/active-phones';
 function formatTime(dateStr) {
   if (!dateStr) return '';
   const d = new Date(dateStr);
@@ -50,9 +53,8 @@ export default function ConversationDetail() {
   );
 
   // SWR for active handoffs
-  const { data: rawHandoffs, revalidate: revalidateHandoffs } = useStaleData('/api/handoffs');
-  const handoffsList = Array.isArray(rawHandoffs) ? rawHandoffs : (rawHandoffs?.handoffs || []);
-  const isHandedOff = handoffSuccess || handoffsList.some((h) => h.status !== 'resolved' && String(h.phone) === String(phone));
+  const { data: rawHandoffs, revalidate: revalidateHandoffs } = useStaleData(ACTIVE_HANDOFFS_URL);
+  const isHandedOff = handoffSuccess || (rawHandoffs?.phones || []).includes(String(phone));
 
   const total = rawData?.total ?? 0;
   const profileName = rawData?.profileName ?? phone;
@@ -126,13 +128,14 @@ export default function ConversationDetail() {
         body: JSON.stringify({
           phone,
           profileName: profileName || phone,
-          reason: 'Handed off manually by dashboard',
+          reason: 'dashboard',
+          description: 'Handed off manually from the dashboard',
           lastMessage: lastMsg,
         }),
       });
       const data = await res.json();
       if (data.success) {
-        invalidateCache('/api/handoffs');
+        invalidateCache(ACTIVE_HANDOFFS_URL);
         setHandoffSuccess(true);
         revalidateHandoffs();
       }

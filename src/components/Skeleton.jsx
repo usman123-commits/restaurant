@@ -240,11 +240,45 @@ export function DashboardSkeleton() {
   );
 }
 
+function HandoffCardSkeleton() {
+  return (
+    <div className="bg-white rounded-xl shadow-sm p-5">
+      <div className="flex items-start justify-between mb-3">
+        <div className="space-y-2">
+          <Skeleton className="h-5 w-28" />
+          <Skeleton className="h-4 w-24" />
+        </div>
+        <Skeleton className="h-6 w-16 rounded-full" />
+      </div>
+      <Skeleton className="h-6 w-32 rounded-md mb-3" />
+      <div className="border-t border-gray-100 pt-3 mb-3 space-y-2">
+        <Skeleton className="h-3 w-20" />
+        <Skeleton className="h-4 w-full" />
+        <Skeleton className="h-4 w-2/3" />
+      </div>
+      <div className="mb-3 space-y-2">
+        <Skeleton className="h-3 w-24" />
+        <Skeleton className="h-4 w-5/6" />
+        <Skeleton className="h-4 w-1/2" />
+      </div>
+      <div className="flex items-center justify-between pt-3 border-t border-gray-100">
+        <Skeleton className="h-3.5 w-14" />
+        <Skeleton className="h-7 w-20 rounded-lg" />
+      </div>
+    </div>
+  );
+}
+
 export function HandoffsSkeleton() {
   return (
     <div className="space-y-6">
-      <h2 className="text-2xl font-bold text-gray-900">Handoffs</h2>
-      <CardGridSkeleton count={6} lines={4} />
+      <PageTitle right={<div className="flex gap-3"><Skeleton className="h-10 w-60 rounded-xl" /><Skeleton className="h-10 w-80 rounded-xl" /></div>}>
+        Handoffs
+      </PageTitle>
+      <div className="bg-white/40 p-1.5 rounded-2xl">
+        <PillRowSkeleton widths={['w-16', 'w-48', 'w-32', 'w-32', 'w-48', 'w-28']} />
+      </div>
+      <GridOf count={6} Card={HandoffCardSkeleton} />
     </div>
   );
 }
