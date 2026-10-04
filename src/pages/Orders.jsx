@@ -16,7 +16,7 @@ import {
 import { useStaleData, invalidateCache } from '../hooks/useStaleData';
 import LoadMoreButton from '../components/LoadMoreButton';
 import LoadingBar from '../components/LoadingBar';
-import { TAB_NAMES as tabs, isDineIn, matchesTab } from '../../server/shared/orderTabs.js';
+import { TAB_NAMES as tabs, isDineIn, isPhoneCall, matchesTab } from '../../server/shared/orderTabs.js';
 import { usePagedList, usePrefetchInto, useDebouncedValue, localDayRange, buildUrl } from '../hooks/usePagedList';
 
 import { OrdersSkeleton } from '../components/Skeleton';
@@ -90,6 +90,9 @@ export default function Orders() {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [profileName, setProfileName] = useState('Dine-In Customer');
   const [phone, setPhone] = useState('');
+  // New Order form: 'dine_in' (eaten here) or 'phone_call' (taken by phone, delivered by rider)
+  const [newOrderType, setNewOrderType] = useState('dine_in');
+  const [deliveryAddress, setDeliveryAddress] = useState('');
   const [notes, setNotes] = useState('');
   const [orderItems, setOrderItems] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState('All');
@@ -210,6 +213,15 @@ export default function Orders() {
       setFormError('Please add at least one item to the order.');
       return;
     }
+    const onCall = newOrderType === 'phone_call';
+    if (onCall && !phone.trim()) {
+      setFormError('Phone number is required for phone orders.');
+      return;
+    }
+    if (onCall && !deliveryAddress.trim()) {
+      setFormError('Delivery address is required for phone orders.');
+      return;
+    }
 
     setSubmitting(true);
     setFormError('');
@@ -221,10 +233,10 @@ export default function Orders() {
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
-          profileName: profileName.trim() || 'Dine-In Customer',
+          profileName: profileName.trim() || (onCall ? 'Phone Customer' : 'Dine-In Customer'),
           phone: finalPhone,
-          deliveryAddress: 'Dine In',
-          orderType: 'dine_in',
+          deliveryAddress: onCall ? deliveryAddress.trim() : 'Dine In',
+          orderType: newOrderType,
           items: orderItems,
           totalAmount: orderTotal,
           notes: notes.trim(),
@@ -238,6 +250,8 @@ export default function Orders() {
         await revalidate();
         setIsCreateModalOpen(false);
         // Reset form
+        setNewOrderType('dine_in');
+        setDeliveryAddress('');
         setProfileName('Dine-In Customer');
         setPhone('');
         setNotes('');
@@ -291,6 +305,8 @@ export default function Orders() {
           <button
             type="button"
             onClick={() => {
+              setNewOrderType('dine_in');
+              setDeliveryAddress('');
               setProfileName('Dine-In Customer');
               setPhone('');
               setNotes('');
@@ -415,24 +431,30 @@ export default function Orders() {
                 key={order.orderId}
                 className="bg-white rounded-xl shadow-sm p-5 animate-fade-in flex flex-col h-full"
               >
-                {/* Header */}
-                <div className="flex items-start justify-between mb-3">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <p className="font-semibold text-gray-900">
-                        #{order.orderId || '---'}
-                      </p>
+                {/* Header -- line 1: the full order ID; line 2: type badge + name, status on the right.
+                    Long IDs (OTTO- + 13 digits) get the whole width, and every header has the same shape. */}
+                <div className="mb-3 space-y-1">
+                  <p className="font-semibold text-gray-900 break-all">
+                    #{order.orderId || '---'}
+                  </p>
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2 min-w-0">
                       {dineIn && (
-                        <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-orange-50 text-brand-600 border border-orange-100">
+                        <span className="shrink-0 whitespace-nowrap text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-orange-50 text-brand-600 border border-orange-100">
                           Dine In
                         </span>
                       )}
+                      {isPhoneCall(order) && (
+                        <span className="shrink-0 whitespace-nowrap text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-sky-50 text-sky-700 border border-sky-100">
+                          On Call
+                        </span>
+                      )}
+                      <p className="text-sm text-gray-500 truncate">{order.profileName || order.phone}</p>
                     </div>
-                    <p className="text-sm text-gray-500">{order.profileName || order.phone}</p>
+                    <span className={`shrink-0 whitespace-nowrap text-xs font-medium px-2.5 py-1 rounded-full ${cfg.bg}`}>
+                      {statusLabel}
+                    </span>
                   </div>
-                  <span className={`text-xs font-medium px-2.5 py-1 rounded-full ${cfg.bg}`}>
-                    {statusLabel}
-                  </span>
                 </div>
 
                 {/* Items */}
@@ -611,10 +633,12 @@ export default function Orders() {
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 sticky top-0 bg-white z-10">
               <div className="flex items-center gap-2.5">
                 <div className="w-9 h-9 rounded-xl bg-brand-50 text-brand-500 flex items-center justify-center">
-                  <UtensilsCrossed size={18} />
+                  {newOrderType === 'phone_call' ? <Phone size={18} /> : <UtensilsCrossed size={18} />}
                 </div>
                 <div>
-                  <h3 className="font-bold text-lg text-gray-900 leading-tight">Create Dine-In Order</h3>
+                  <h3 className="font-bold text-lg text-gray-900 leading-tight">
+                    {newOrderType === 'phone_call' ? 'Create Phone Order' : 'Create Dine-In Order'}
+                  </h3>
                   <p className="text-xs text-gray-400">Order ID & Timestamp will be assigned automatically</p>
                 </div>
               </div>
@@ -638,6 +662,30 @@ export default function Orders() {
 
               {/* Customer Info Grid */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1.5">
+                    Order Type
+                  </label>
+                  <div className="relative">
+                    <select
+                      value={newOrderType}
+                      onChange={(e) => {
+                        const next = e.target.value;
+                        setNewOrderType(next);
+                        // Swap the default name only if the user hasn't typed their own.
+                        if (next === 'phone_call' && profileName === 'Dine-In Customer') setProfileName('');
+                        if (next === 'dine_in' && !profileName.trim()) setProfileName('Dine-In Customer');
+                        setFormError('');
+                      }}
+                      className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent bg-gray-50/50 appearance-none pr-9"
+                    >
+                      <option value="dine_in">Dine In</option>
+                      <option value="phone_call">On Call (phone order, delivered)</option>
+                    </select>
+                    <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                  </div>
+                </div>
+
                 <div>
                   <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1.5">
                     Customer Name
@@ -646,23 +694,40 @@ export default function Orders() {
                     type="text"
                     value={profileName}
                     onChange={(e) => setProfileName(e.target.value)}
-                    placeholder="e.g. Dine-In Customer or Name"
+                    placeholder={newOrderType === 'phone_call' ? 'Caller name' : 'e.g. Dine-In Customer or Name'}
                     className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent bg-gray-50/50"
                   />
                 </div>
 
                 <div>
                   <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1.5">
-                    Phone (Optional)
+                    {newOrderType === 'phone_call' ? <>Phone <span className="text-red-500">*</span></> : 'Phone (Optional)'}
                   </label>
                   <input
-                    type="text"
+                    type="tel"
                     value={phone}
                     onChange={(e) => setPhone(e.target.value)}
-                    placeholder="Leave blank for not_provided"
+                    required={newOrderType === 'phone_call'}
+                    placeholder={newOrderType === 'phone_call' ? 'Number to call back' : 'Leave blank for not_provided'}
                     className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent bg-gray-50/50"
                   />
                 </div>
+
+                {newOrderType === 'phone_call' && (
+                  <div className="sm:col-span-2">
+                    <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1.5">
+                      Delivery Address <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={deliveryAddress}
+                      onChange={(e) => setDeliveryAddress(e.target.value)}
+                      required
+                      placeholder="House / street / area"
+                      className="w-full px-3.5 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent bg-gray-50/50"
+                    />
+                  </div>
+                )}
 
                 <div className="sm:col-span-2">
                   <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1.5">
@@ -856,7 +921,7 @@ export default function Orders() {
                   ) : (
                     <>
                       <Plus size={16} />
-                      <span>Create Dine-In Order</span>
+                      <span>{newOrderType === 'phone_call' ? 'Create Phone Order' : 'Create Dine-In Order'}</span>
                     </>
                   )}
                 </button>

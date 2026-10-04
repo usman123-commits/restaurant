@@ -57,12 +57,12 @@ function CardGridSkeleton({ count = 6, lines = 3 }) {
 function OrderCardSkeleton() {
   return (
     <div className="bg-white rounded-xl shadow-sm p-5">
-      <div className="flex items-start justify-between mb-3">
-        <div className="space-y-2">
-          <Skeleton className="h-5 w-24" />
-          <Skeleton className="h-4 w-20" />
+      <div className="mb-3 space-y-2">
+        <Skeleton className="h-5 w-44" />
+        <div className="flex items-center justify-between">
+          <Skeleton className="h-4 w-28" />
+          <Skeleton className="h-6 w-20 rounded-full" />
         </div>
-        <Skeleton className="h-6 w-20 rounded-full" />
       </div>
       <div className="border-t border-gray-100 py-3 flex justify-between">
         <Skeleton className="h-4 w-28" />
@@ -125,7 +125,7 @@ export function OrdersSkeleton() {
         Orders
       </PageTitle>
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-white/40 p-1.5 rounded-2xl">
-        <PillRowSkeleton widths={['w-12', 'w-24', 'w-28', 'w-28', 'w-24', 'w-20', 'w-24']} />
+        <PillRowSkeleton widths={['w-12', 'w-24', 'w-24', 'w-28', 'w-28', 'w-24', 'w-20', 'w-24']} />
         <Skeleton className="h-10 w-80 rounded-xl" />
       </div>
       <GridOf count={6} Card={OrderCardSkeleton} />
