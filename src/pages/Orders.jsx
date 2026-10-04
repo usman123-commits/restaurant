@@ -15,8 +15,9 @@ import {
 } from 'lucide-react';
 import { useStaleData, invalidateCache } from '../hooks/useStaleData';
 import LoadMoreButton from '../components/LoadMoreButton';
+import LoadingBar from '../components/LoadingBar';
 import { TAB_NAMES as tabs, isDineIn, matchesTab } from '../../server/shared/orderTabs.js';
-import { usePagedList, useDebouncedValue, localDayRange, buildUrl } from '../hooks/usePagedList';
+import { usePagedList, usePrefetchInto, useDebouncedValue, localDayRange, buildUrl } from '../hooks/usePagedList';
 
 function timeAgo(dateStr) {
   if (!dateStr) return '';
@@ -75,7 +76,7 @@ const statusConfig = {
 const ORDERS_URL = '/api/orders';
 const PAGE_SIZE = 20;
 // Auto-refresh for views where new orders or status changes can appear.
-const LIVE_REFRESH_MS = 20000;
+const LIVE_REFRESH_MS = 30000;
 const HISTORY_TABS = new Set(['Delivered', 'Served', 'Cancelled']);
 
 export default function Orders() {
@@ -100,13 +101,14 @@ export default function Orders() {
   // filter combination gets its own stale-while-revalidate cache entry.
   const debouncedSearch = useDebouncedValue(search.trim());
   const range = localDayRange(selectedDate);
-  const listUrl = buildUrl(ORDERS_URL, {
-    tab: activeTab,
-    from: range?.from,
-    to: range?.to,
-    q: debouncedSearch,
-    limit: PAGE_SIZE,
-  });
+  const filterParams = { from: range?.from, to: range?.to, q: debouncedSearch, limit: PAGE_SIZE };
+  // Param order matters: this string is the cache key, shared with the prefetch below.
+  const urlForTab = (tab) => buildUrl(ORDERS_URL, { tab, ...filterParams });
+  const listUrl = urlForTab(activeTab);
+
+  // First page of every tab in one request, so switching tabs is instant.
+  // Re-runs when date or search change (all tabs share those).
+  usePrefetchInto(buildUrl(`${ORDERS_URL}/tabs`, filterParams), urlForTab);
   const {
     data: rawOrders,
     items: orders,
@@ -114,6 +116,7 @@ export default function Orders() {
     loadMore,
     loadingMore,
     revalidating,
+    isPlaceholder,
     revalidate,
     mutateItems,
   } = usePagedList(listUrl, 'orders', {
@@ -252,7 +255,9 @@ export default function Orders() {
 
   // Server already applied date + tab + search. Re-check the tab only, so an order
   // whose status was just changed leaves the current tab without waiting for a refetch.
-  const filtered = orders.filter((o) => matchesTab(o, activeTab));
+  // While a new filter loads, keep the previous list exactly as it was (dimmed),
+  // rather than re-filtering it into a partial or empty answer.
+  const filtered = isPlaceholder ? orders : orders.filter((o) => matchesTab(o, activeTab));
 
   // Only show spinner on absolute first load (no stale data yet)
   if (!rawOrders && revalidating) {
@@ -389,7 +394,10 @@ export default function Orders() {
         </div>
       </div>
 
-      {/* Orders grid */}
+      {/* Orders grid -- dimmed with a loading bar while a new filter loads */}
+      <div className="relative">
+      <div className="absolute -top-3 inset-x-0"><LoadingBar active={isPlaceholder} /></div>
+      <div className={`space-y-6 transition-opacity duration-150 ${isPlaceholder ? 'opacity-50 pointer-events-none' : ''}`}>
       {filtered.length === 0 ? (
         <div className="text-center py-20 text-gray-400">
           <ShoppingBag size={48} className="mx-auto mb-3 opacity-40" />
@@ -594,6 +602,8 @@ export default function Orders() {
           label={`Load more (${Math.max(0, (counts[activeTab] ?? 0) - orders.length)} remaining)`}
         />
       )}
+      </div>
+      </div>
 
       {/* Create Manual Dine-In Order Modal */}
       {isCreateModalOpen && (

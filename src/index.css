@@ -55,3 +55,12 @@
 .chat-bubble-right {
   border-bottom-right-radius: 4px;
 }
+
+/* LoadingBar: indeterminate sweep */
+@keyframes loading-bar {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(300%); }
+}
+.animate-loading-bar {
+  animation: loading-bar 1s ease-in-out infinite;
+}

@@ -34,7 +34,7 @@ export default function Conversations() {
   const listUrl = buildUrl('/api/conversations', { limit: PAGE_SIZE, offset: 0, q: debouncedSearch });
 
   // SWR for the first page
-  const { data: firstPage, revalidating } = useStaleData(listUrl);
+  const { data: firstPage, revalidating, isPlaceholder } = useStaleData(listUrl);
 
   // SWR for active handoffs
   const { data: rawHandoffs, revalidate: revalidateHandoffs } = useStaleData('/api/handoffs');
@@ -145,7 +145,7 @@ export default function Conversations() {
         </div>
       ) : (
         <>
-          <div className="bg-white rounded-xl shadow-sm divide-y divide-gray-100">
+          <div className={`bg-white rounded-xl shadow-sm divide-y divide-gray-100 transition-opacity duration-150 ${isPlaceholder ? 'opacity-50 pointer-events-none' : ''}`}>
             {filtered.map((conv) => {
               const isHandedOff = handoffSuccess[conv.phone] || activeHandoffPhones.has(String(conv.phone));
               return (
@@ -213,7 +213,7 @@ export default function Conversations() {
           </div>
 
           {/* Load more */}
-          {hasMore && (
+          {hasMore && !isPlaceholder && (
             <div className="flex justify-center">
               <button
                 onClick={loadMore}

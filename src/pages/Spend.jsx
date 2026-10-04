@@ -19,8 +19,9 @@ import {
   AlertTriangle,
   GlassWater,
 } from 'lucide-react';
-import { usePagedList, useDebouncedValue, localDayRange, buildUrl } from '../hooks/usePagedList';
+import { usePagedList, usePrefetchInto, useDebouncedValue, localDayRange, buildUrl } from '../hooks/usePagedList';
 import LoadMoreButton from '../components/LoadMoreButton';
+import LoadingBar from '../components/LoadingBar';
 
 function fmt(n) {
   return Number(n || 0).toLocaleString();
@@ -115,14 +116,22 @@ export default function Spend() {
   // filter combination gets its own stale-while-revalidate cache entry.
   const debouncedSearch = useDebouncedValue(search.trim());
   const range = localDayRange(selectedDate);
-  const listUrl = buildUrl(SPEND_URL, {
-    category: activeCategory,
+  const filterParams = {
     from: range?.from,
     to: range?.to,
     q: debouncedSearch,
     tz: new Date().getTimezoneOffset(),
     limit: PAGE_SIZE,
-  });
+  };
+  // Param order matters: this string is the cache key, shared with the prefetch below.
+  const urlForCategory = (category) => buildUrl(SPEND_URL, { category, ...filterParams });
+  const listUrl = urlForCategory(activeCategory);
+
+  // First page of every category button in one request, so switching is instant.
+  usePrefetchInto(
+    buildUrl(`${SPEND_URL}/categories`, { categories: CATEGORIES.join(','), ...filterParams }),
+    urlForCategory
+  );
   const {
     data: rawSpendData,
     items: spends,
@@ -130,6 +139,7 @@ export default function Spend() {
     loadMore,
     loadingMore,
     revalidating,
+    isPlaceholder,
     revalidate,
     mutateItems,
   } = usePagedList(listUrl, 'spends');
@@ -410,7 +420,10 @@ export default function Spend() {
         })}
       </div>
 
-      {/* Spends Cards Grid */}
+      {/* Spends Cards Grid -- dimmed with a loading bar while a new filter loads */}
+      <div className="relative">
+      <div className="absolute -top-3 inset-x-0"><LoadingBar active={isPlaceholder} /></div>
+      <div className={`space-y-6 transition-opacity duration-150 ${isPlaceholder ? 'opacity-50 pointer-events-none' : ''}`}>
       {filtered.length === 0 ? (
         <div className="text-center py-20 bg-white rounded-xl shadow-sm text-gray-400">
           <Receipt size={48} className="mx-auto mb-3 opacity-40" />
@@ -486,6 +499,8 @@ export default function Spend() {
           label={`Load more (${Math.max(0, countFor(activeCategory) - spends.length)} remaining)`}
         />
       )}
+      </div>
+      </div>
 
       {/* Add Spend Modal */}
       {isModalOpen && (

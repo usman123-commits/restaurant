@@ -15,6 +15,12 @@ const cache = new Map();
  *   - If cache has data for `url`, immediately returns it (no spinner).
  *   - Simultaneously fires a background fetch to revalidate.
  *
+ * When `url` changes (e.g. a filter):
+ *   - Cached -> switch to it instantly.
+ *   - Not cached -> keep showing the previous URL's data with `isPlaceholder: true`
+ *     until the new data arrives, so the page never blanks out. Pages should dim
+ *     placeholder data and show a small loading indicator.
+ *
  * On every poll cycle:
  *   - Returns stale data instantly, updates silently when fresh data arrives.
  *
@@ -23,24 +29,24 @@ const cache = new Map();
  * @param {number}   [options.pollInterval]  - Auto-refresh interval in ms (0 = no polling).
  *                                           Paused while the browser tab is hidden.
  * @param {function} [options.transform]     - Optional transform applied to raw JSON before storing.
- * @returns {{ data: any, revalidating: boolean, revalidate: function }}
+ * @returns {{ data: any, revalidating: boolean, isPlaceholder: boolean, revalidate: function }}
+ *   revalidating  - true only while there is no data at all to show (first ever load).
+ *   isPlaceholder - true while `data` still belongs to a previous URL.
  */
 export function useStaleData(url, { pollInterval = 0, transform } = {}) {
   const cached = cache.get(url);
 
-  const [data, setData] = useState(cached?.data ?? null);
-  // revalidating=true only when there is NO cached data yet (very first load)
-  const [revalidating, setRevalidating] = useState(!cached);
+  // `shown.url` is the URL that `shown.data` belongs to.
+  const [shown, setShown] = useState(() => ({ url, data: cached?.data ?? null }));
+  // URL whose first fetch has finished (successfully or not).
+  const [settledUrl, setSettledUrl] = useState(cached ? url : null);
   const isMounted = useRef(true);
   const currentUrl = useRef(url);
 
-  // When the URL changes (e.g. a filter), switch to that URL's cached data right
-  // away instead of showing the previous URL's data until the fetch returns.
-  const [shownUrl, setShownUrl] = useState(url);
-  if (shownUrl !== url) {
-    setShownUrl(url);
-    setData(cached?.data ?? null);
-    setRevalidating(!cached);
+  // URL changed and we have it cached: show it right away (during render, so the
+  // previous URL's rows never flash). Not cached: keep the previous data as placeholder.
+  if (shown.url !== url && cached) {
+    setShown({ url, data: cached.data });
   }
 
   const fetchData = async () => {
@@ -55,11 +61,15 @@ export function useStaleData(url, { pollInterval = 0, transform } = {}) {
 
       // Ignore responses for a URL we've already moved away from.
       if (isMounted.current && currentUrl.current === requestUrl) {
-        setData(result);
-        setRevalidating(false);
+        setShown({ url: requestUrl, data: result });
+        setSettledUrl(requestUrl);
       }
     } catch {
-      if (isMounted.current && currentUrl.current === requestUrl) setRevalidating(false);
+      if (isMounted.current && currentUrl.current === requestUrl) {
+        // Don't leave the previous filter's rows on screen as if they were the answer.
+        setShown({ url: requestUrl, data: cache.get(requestUrl)?.data ?? null });
+        setSettledUrl(requestUrl);
+      }
     }
   };
 
@@ -91,10 +101,22 @@ export function useStaleData(url, { pollInterval = 0, transform } = {}) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [url, pollInterval]);
 
-  return { data, revalidating, revalidate: fetchData };
+  const isPlaceholder = shown.url !== url && shown.data != null;
+  const revalidating = shown.data == null && settledUrl !== url;
+  return { data: shown.data, revalidating, isPlaceholder, revalidate: fetchData };
 }
 
 /** Manually invalidate a cache entry (call after mutations). */
 export function invalidateCache(url) {
   cache.delete(url);
+}
+
+/**
+ * Put data fetched elsewhere (e.g. a batch "prefetch all tabs" request) into the
+ * cache under `url`, unless the cache already holds something newer.
+ * `fetchedAt` = when that batch request was started.
+ */
+export function seedCache(url, data, fetchedAt) {
+  const existing = cache.get(url);
+  if (!existing || existing.fetchedAt < fetchedAt) cache.set(url, { data, fetchedAt });
 }
