@@ -93,6 +93,7 @@ export default function App() {
             <Route path="/menu" element={<MenuManager />} />
             <Route path="/handoffs" element={<Handoffs />} />
             <Route path="/spend" element={<Spend />} />
+            <Route path="/settings" element={<Settings />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </div>

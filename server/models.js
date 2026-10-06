@@ -52,6 +52,7 @@ const conversationSchema = new Schema({
   role:        { type: String, default: '' },
   timestamp:   { type: Date, default: Date.now },
   sessionId:   { type: String, default: '' },
+  turnId:      { type: String, default: null }, // the bot's turn (trace) -- written by the agent
 }, schemaOpts);
 
 // Serves "latest N messages for a phone" and the cursor for "load older".
@@ -104,6 +105,22 @@ const blockedNumberSchema = new Schema({
 }, schemaOpts);
 
 export const BlockedNumber = mongoose.models.BlockedNumber || mongoose.model('BlockedNumber', blockedNumberSchema);
+
+// ─── Feedback ─────────────────────────────────────────────────────────────────
+// A bot reply the restaurant reported as wrong (Conversations page). Reviewed in the Zelvop console.
+const feedbackSchema = new Schema({
+  conversationId:  { type: String, required: true, unique: true }, // the bot message
+  turnId:          { type: String, default: null },  // the bot's trace (turns collection)
+  phone:           { type: String, default: '' },
+  profileName:     { type: String, default: '' },
+  customerMessage: { type: String, default: '' },
+  botReply:        { type: String, default: '' },
+  repliedAt:       { type: Date },
+  note:            { type: String, default: '' },    // what was wrong / what the bot should have said
+  source:          { type: String, default: 'dashboard' },
+}, { ...schemaOpts, collection: 'feedback' });
+
+export const Feedback = mongoose.models.Feedback || mongoose.model('Feedback', feedbackSchema);
 
 // ─── BotConfig ───────────────────────────────────────────────────────────────
 const botConfigSchema = new Schema({

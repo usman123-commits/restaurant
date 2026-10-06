@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, MessageSquare, Loader2, PhoneForwarded, Check } from 'lucide-react';
 import { useStaleData, invalidateCache } from '../hooks/useStaleData';
 import { Skeleton, ChatBubblesSkeleton } from '../components/Skeleton';
+import ReportReply from '../components/ReportReply';
 
 
 // Phones with an unresolved handoff (small lookup, not the full handoff history).
@@ -39,6 +40,8 @@ export default function ConversationDetail() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [handingOff, setHandingOff] = useState(false);
   const [handoffSuccess, setHandoffSuccess] = useState(false);
+  // reports made / changed / undone on this page, by message id (null = undone)
+  const [reports, setReports] = useState({});
   const bottomRef = useRef(null);
   const scrollRef = useRef(null);
   const prependAnchor = useRef(null);
@@ -46,6 +49,7 @@ export default function ConversationDetail() {
   useEffect(() => {
     setOlder({ messages: [], nextCursor: null, loaded: false });
     setHandoffSuccess(false);
+    setReports({});
   }, [phone]);
 
   const { data: rawData, revalidating } = useStaleData(
@@ -251,6 +255,13 @@ export default function ConversationDetail() {
                     <p className={`text-[10px] mt-1 ${isBot ? 'text-gray-400' : 'text-emerald-600'} text-right`}>
                       {formatTime(msg.timestamp || msg.createdAt)}
                     </p>
+                    {isBot && (
+                      <ReportReply
+                        message={msg}
+                        report={msg._id in reports ? reports[msg._id] : msg.report || null}
+                        onChange={(r) => setReports((prev) => ({ ...prev, [msg._id]: r }))}
+                      />
+                    )}
                   </div>
                 </div>
               );
