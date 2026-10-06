@@ -1,26 +1,31 @@
-import { useState, useEffect, useLayoutEffect, useRef } from 'react';
+import { Fragment, useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, MessageSquare, Loader2, PhoneForwarded, Check } from 'lucide-react';
 import { useStaleData, invalidateCache } from '../hooks/useStaleData';
 import { Skeleton, ChatBubblesSkeleton } from '../components/Skeleton';
 import ReportReply from '../components/ReportReply';
+import { markReadLocally, localReadAt, dayKey, dayLabel, timeOfDay } from '../lib/chat';
 
 
 // Phones with an unresolved handoff (small lookup, not the full handoff history).
 const ACTIVE_HANDOFFS_URL = '/api/handoffs/active-phones';
-function formatTime(dateStr) {
-  if (!dateStr) return '';
-  const d = new Date(dateStr);
-  const now = new Date();
-  const diffDays = Math.floor((now - d) / 86400000);
-  const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
-  if (diffDays === 0) return time;
-  if (diffDays === 1) return `Yesterday ${time}`;
-  if (diffDays < 7) return `${d.toLocaleDateString('en-US', { weekday: 'short' })} ${time}`;
-  return `${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} ${time}`;
-}
-
 const MSG_LIMIT = 20;
+
+// [{ key, at, items: [{ msg, i }] }] -- consecutive messages per calendar day, in order.
+// `i` is the index in the full list (used to look at the previous message).
+function groupByDay(list) {
+  const days = [];
+  list.forEach((msg, i) => {
+    const at = msg.timestamp || msg.createdAt;
+    const key = dayKey(at);
+    if (!days.length || days[days.length - 1].key !== key) days.push({ key, at, items: [] });
+    days[days.length - 1].items.push({ msg, i });
+  });
+  return days;
+}
+// Consecutive messages from the same side within this gap are drawn as one group
+// (one name label, tighter spacing), like WhatsApp.
+const GROUP_GAP_MS = 5 * 60 * 1000;
 
 // The n8n bot logs its replies with role 'assistant' and profileName 'BOT'.
 function isBotMessage(msg) {
@@ -76,13 +81,47 @@ export default function ConversationDetail() {
   const nextCursor = older.loaded ? older.nextCursor : rawData?.nextCursor ?? null;
   const hasMore = Boolean(nextCursor);
 
+  // ---- Unread divider + mark as read ----
+  // The read point as it was when this chat was opened (taken once per visit), so the
+  // "N unread messages" divider stays put while we mark the chat read underneath it.
+  const baseline = useRef({ phone: null, at: null });
+  if (rawData && baseline.current.phone !== phone) {
+    const server = new Date(rawData.lastReadAt || 0).getTime();
+    baseline.current = { phone, at: Math.max(isNaN(server) ? 0 : server, localReadAt(phone)) };
+  }
+  const readBaseline = baseline.current.phone === phone ? baseline.current.at : null;
+  const isUnread = (m) => readBaseline != null && !isBotMessage(m) && new Date(m.timestamp).getTime() > readBaseline;
+  const firstUnreadId = messages.find(isUnread)?._id ?? null;
+  const unreadCount = Math.max(messages.filter(isUnread).length, firstUnreadId && !older.loaded ? rawData?.unread || 0 : 0);
+
+  // Mark read up to the newest message on screen (only moves forward).
+  const newestAt = messages.length ? messages[messages.length - 1].timestamp : null;
+  useEffect(() => {
+    if (!newestAt || new Date(newestAt).getTime() <= localReadAt(phone)) return;
+    markReadLocally(phone, newestAt);
+    fetch(`/api/conversations/${encodeURIComponent(phone)}/read`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ upTo: newestAt }),
+    }).catch(() => { /* next visit retries */ });
+  }, [phone, newestAt]);
+
   // Scroll to bottom only when the newest message changes (first load / new message),
   // not when older messages are prepended.
   const lastId = messages.length ? (messages[messages.length - 1]._id || messages.length) : null;
+  const unreadDividerRef = useRef(null);
+  const scrolledOnce = useRef(null);
   useEffect(() => {
-    if (lastId != null) {
-      setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
-    }
+    if (lastId == null) return;
+    // First view of this chat: jump to the unread divider if there is one (like WhatsApp).
+    const first = scrolledOnce.current !== phone;
+    scrolledOnce.current = phone;
+    setTimeout(() => {
+      if (first && unreadDividerRef.current) unreadDividerRef.current.scrollIntoView({ block: 'center' });
+      else bottomRef.current?.scrollIntoView({ behavior: first ? 'auto' : 'smooth' });
+    }, 100);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lastId]);
 
   // Keep the viewport on the same message after prepending older ones.
@@ -214,7 +253,7 @@ export default function ConversationDetail() {
             <p>No messages in this conversation</p>
           </div>
         ) : (
-          <div className="space-y-3">
+          <div>
             {/* Load older messages */}
             {hasMore && (
               <div className="flex justify-center py-2">
@@ -235,37 +274,67 @@ export default function ConversationDetail() {
               </div>
             )}
 
-            {messages.map((msg, i) => {
-              const isBot = isBotMessage(msg);
-              const onRight = isBot === BOT_ON_RIGHT;
-              return (
-                <div
-                  key={msg._id || i}
-                  className={`flex ${onRight ? 'justify-end' : 'justify-start'}`}
-                >
-                  <div
-                    className={`max-w-[75%] px-3.5 py-2 rounded-2xl text-sm shadow-sm text-gray-900 ${
-                      onRight ? 'chat-bubble-right' : 'chat-bubble-left'
-                    } ${isBot ? 'bg-white' : 'bg-[#d9fdd3]'}`}
-                  >
-                    <p className={`text-[11px] font-semibold mb-0.5 ${isBot ? 'text-brand-600' : 'text-emerald-700'}`}>
-                      {isBot ? 'OTTO (bot)' : profileName}
-                    </p>
-                    <p className="whitespace-pre-wrap break-words">{msg.body || msg.message || msg.text}</p>
-                    <p className={`text-[10px] mt-1 ${isBot ? 'text-gray-400' : 'text-emerald-600'} text-right`}>
-                      {formatTime(msg.timestamp || msg.createdAt)}
-                    </p>
-                    {isBot && (
-                      <ReportReply
-                        message={msg}
-                        report={msg._id in reports ? reports[msg._id] : msg.report || null}
-                        onChange={(r) => setReports((prev) => ({ ...prev, [msg._id]: r }))}
-                      />
-                    )}
-                  </div>
+            {/* One section per day: the day label is sticky INSIDE its section, so it stays
+                pinned while you scroll through that day and the next day's label pushes it
+                out (WhatsApp style). */}
+            {groupByDay(messages).map((day) => (
+              <section key={day.key}>
+                <div className="sticky top-0 z-10 flex justify-center py-2">
+                  <span className="px-3 py-1 rounded-lg bg-white shadow-sm text-[11px] font-medium text-gray-600">
+                    {dayLabel(day.at)}
+                  </span>
                 </div>
-              );
-            })}
+                {day.items.map(({ msg, i }) => {
+                  const isBot = isBotMessage(msg);
+                  const onRight = isBot === BOT_ON_RIGHT;
+                  const prev = messages[i - 1];
+                  const at = msg.timestamp || msg.createdAt;
+                  const showUnread = msg._id != null && msg._id === firstUnreadId;
+                  // Same side, same day, within a few minutes, no divider in between -> same group.
+                  const grouped = day.items[0].i !== i && !showUnread && prev && isBotMessage(prev) === isBot
+                    && new Date(at) - new Date(prev.timestamp || prev.createdAt) < GROUP_GAP_MS;
+                  return (
+                    <Fragment key={msg._id || i}>
+                      {showUnread && (
+                        <div ref={unreadDividerRef} className="my-3 flex justify-center">
+                          <span className="w-full text-center py-1 rounded-md bg-white/70 text-[11px] font-semibold text-emerald-700">
+                            {unreadCount} unread message{unreadCount !== 1 ? 's' : ''}
+                          </span>
+                        </div>
+                      )}
+                      <div className={`flex ${onRight ? 'justify-end' : 'justify-start'} ${grouped ? 'mt-1' : 'mt-3'}`}>
+                        <div
+                          className={`max-w-[75%] px-3 py-1.5 rounded-xl text-sm shadow-sm text-gray-900 ${
+                            grouped ? '' : onRight ? 'chat-bubble-right' : 'chat-bubble-left'
+                          } ${isBot ? 'bg-white' : 'bg-[#d9fdd3]'}`}
+                        >
+                          {!grouped && (
+                            <p className={`text-[11px] font-semibold mb-0.5 ${isBot ? 'text-brand-600' : 'text-emerald-700'}`}>
+                              {isBot ? 'OTTO (bot)' : profileName}
+                            </p>
+                          )}
+                          <p className="whitespace-pre-wrap break-words leading-snug">
+                            {msg.body || msg.message || msg.text}
+                            {/* invisible spacer keeps the last line clear of the time */}
+                            <span className="inline-block w-14" aria-hidden="true" />
+                          </p>
+                          <p className={`-mt-3.5 text-[10px] leading-none ${isBot ? 'text-gray-400' : 'text-emerald-700/70'} text-right`}>
+                            {timeOfDay(at)}
+                          </p>
+                          {isBot && (
+                            <ReportReply
+                              message={msg}
+                              report={msg._id in reports ? reports[msg._id] : msg.report || null}
+                              onChange={(r) => setReports((prev) => ({ ...prev, [msg._id]: r }))}
+                            />
+                          )}
+                        </div>
+                      </div>
+                    </Fragment>
+                  );
+                })}
+              </section>
+            ))}
             <div ref={bottomRef} />
           </div>
         )}
