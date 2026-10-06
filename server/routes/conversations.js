@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { Conversation } from '../models.js';
+import { Conversation, Feedback } from '../models.js';
 import { clampLimit, parseCursor, fetchPage, escapeRegex } from '../lib/paging.js';
 
 const router = Router();
@@ -108,6 +108,12 @@ router.get('/:phone', async (req, res) => {
 
     const messages = page.items.reverse();
     const { hasMore, nextCursor } = page;
+    // bot replies reported as wrong on this page (Report button)
+    const reports = await Feedback.find({ conversationId: { $in: messages.map((m) => String(m._id)) } }, { conversationId: 1, note: 1 }).lean();
+    const reported = new Map(reports.map((r) => [r.conversationId, r.note]));
+    for (const m of messages) {
+      if (reported.has(String(m._id))) m.report = { note: reported.get(String(m._id)) };
+    }
 
     res.json({
       messages,
