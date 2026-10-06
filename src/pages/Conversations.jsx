@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { MessageSquare, ChevronRight, Search, Loader2, PhoneForwarded, Check } from 'lucide-react';
+import { MessageSquare, ChevronRight, Search, Loader2, PhoneForwarded, Check, Ban } from 'lucide-react';
 import { useStaleData, invalidateCache } from '../hooks/useStaleData';
 import { useDebouncedValue, buildUrl } from '../hooks/usePagedList';
 import { localReadAt } from '../lib/chat';
+import { useBlockedNumbers } from '../hooks/useBlockedNumbers';
 
 import { ConversationsSkeleton } from '../components/Skeleton';
 
@@ -45,6 +46,8 @@ export default function Conversations() {
   // SWR for active handoffs
   const { data: rawHandoffs, revalidate: revalidateHandoffs } = useStaleData(ACTIVE_HANDOFFS_URL);
   const activeHandoffPhones = new Set((rawHandoffs?.phones || []).map(String));
+  // Blocked numbers get a visible tag, so "why isn't the bot replying?" answers itself.
+  const { isBlocked } = useBlockedNumbers();
 
   const firstPageList = firstPage?.conversations || [];
   const total = firstPage?.total || 0;
@@ -160,9 +163,19 @@ export default function Conversations() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between">
-                      <p className={`truncate group-hover:text-brand-600 transition-colors ${unread ? 'font-bold text-gray-900' : 'font-medium text-gray-900'}`}>
-                        {conv.profileName || conv.phone}
-                      </p>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <p className={`truncate group-hover:text-brand-600 transition-colors ${unread ? 'font-bold text-gray-900' : 'font-medium text-gray-900'}`}>
+                          {conv.profileName || conv.phone}
+                        </p>
+                        {isBlocked(conv.phone) && (
+                          <span
+                            className="shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-red-50 text-red-600 border border-red-100 text-[10px] font-bold uppercase tracking-wider"
+                            title="The WhatsApp bot ignores this number. Unblock under Handoffs -> Blocked numbers."
+                          >
+                            <Ban size={10} /> Blocked
+                          </span>
+                        )}
+                      </div>
                       <span className={`text-xs shrink-0 ml-2 ${unread ? 'text-green-600 font-semibold' : 'text-gray-400'}`}>
                         {timeAgo(conv.lastTimestamp)}
                       </span>

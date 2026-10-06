@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Banknote, MapPin, Plus, Save, Trash2, Loader2, Info } from 'lucide-react';
 import { validateAreas, findArea } from '../../server/shared/deliveryAreas.js';
+import { BotSettingsSkeleton } from './Skeleton';
 
 // WhatsApp bot settings: the payment message and the delivery areas (charge, rider time,
 // other spellings). The bot reads them from botconfigs and picks up changes within 5 minutes.
@@ -232,13 +233,7 @@ export default function BotSettings() {
   }, []);
 
   if (error) return <p className="text-sm text-red-600">{error}</p>;
-  if (!data) {
-    return (
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5 text-sm text-gray-400 flex items-center gap-2">
-        <Loader2 size={14} className="animate-spin-slow" /> Loading bot settings...
-      </div>
-    );
-  }
+  if (!data) return <BotSettingsSkeleton />;
   return (
     <div className="space-y-6">
       <PaymentPanel initial={data.paymentInfo} defaultText={data.paymentDefault} />

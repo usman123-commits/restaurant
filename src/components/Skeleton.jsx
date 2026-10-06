@@ -322,16 +322,50 @@ export function MenuSkeleton() {
   );
 }
 
-export function SettingsSkeleton() {
+// The two cards on the Settings page (the page draws its own title).
+export function BotSettingsSkeleton() {
   return (
     <div className="space-y-6">
-      <h2 className="text-2xl font-bold text-gray-900">Settings</h2>
-      {[{ title: 'System Prompt', body: 'h-48' }, { title: 'Message Context', body: 'h-12' }].map((card) => (
-        <div key={card.title} className="bg-white rounded-xl shadow-sm border border-gray-200 p-5 space-y-4">
-          <h3 className="font-semibold text-gray-900">{card.title}</h3>
-          <Skeleton className={`w-full ${card.body} rounded-lg`} />
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+        <div className="flex items-center gap-3 mb-4">
+          <Skeleton className="w-10 h-10 rounded-lg shrink-0" />
+          <div className="space-y-1.5">
+            <h3 className="font-semibold text-gray-900">Payment message</h3>
+            <Skeleton className="h-3 w-64" />
+          </div>
         </div>
-      ))}
+        <Skeleton className="w-full h-20 rounded-lg" />
+        <div className="flex justify-between items-center mt-3">
+          <Skeleton className="h-3.5 w-48" />
+          <Skeleton className="h-9 w-24 rounded-lg" />
+        </div>
+      </div>
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5 space-y-4">
+        <div className="flex items-center gap-3">
+          <Skeleton className="w-10 h-10 rounded-lg shrink-0" />
+          <div className="space-y-1.5">
+            <h3 className="font-semibold text-gray-900">Delivery areas</h3>
+            <Skeleton className="h-3 w-72" />
+          </div>
+        </div>
+        <Skeleton className="h-11 w-full rounded-lg" />
+        <div className="hidden md:grid md:grid-cols-[1.2fr_0.6fr_0.6fr_2fr_auto] gap-2">
+          {['w-12', 'w-20', 'w-24', 'w-48', 'w-9'].map((w, i) => <Skeleton key={i} className={`h-3 ${w}`} />)}
+        </div>
+        {Array.from({ length: 5 }, (_, i) => (
+          <div key={i} className="grid grid-cols-2 md:grid-cols-[1.2fr_0.6fr_0.6fr_2fr_auto] gap-2">
+            <Skeleton className="h-9 rounded-lg" />
+            <Skeleton className="h-9 rounded-lg" />
+            <Skeleton className="h-9 rounded-lg" />
+            <Skeleton className="h-9 rounded-lg" />
+            <Skeleton className="h-9 w-9 rounded-lg" />
+          </div>
+        ))}
+        <div className="flex justify-between items-center">
+          <Skeleton className="h-4 w-24" />
+          <Skeleton className="h-9 w-32 rounded-lg" />
+        </div>
+      </div>
     </div>
   );
 }
