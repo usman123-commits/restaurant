@@ -95,6 +95,17 @@ spendSchema.index({ timestamp: -1, _id: -1 });
 
 export const Spend = mongoose.models.Spend || mongoose.model('Spend', spendSchema);
 
+// ─── ConversationRead ──────────────────────────────────────────────────────
+// "Seen up to" per customer, shared by everyone using the dashboard (one login).
+// Customer messages newer than lastReadAt are unread. A phone without a row counts
+// as read up to the moment unread tracking started (botconfigs UNREAD_SINCE).
+const conversationReadSchema = new Schema({
+  phone:      { type: String, required: true, unique: true },
+  lastReadAt: { type: Date, required: true },
+}, schemaOpts);
+
+export const ConversationRead = mongoose.models.ConversationRead || mongoose.model('ConversationRead', conversationReadSchema);
+
 // ─── BlockedNumber ───────────────────────────────────────────────────────────
 // Numbers the WhatsApp bot ignores (managed in Handoffs -> Blocked numbers).
 // phone: digits with country code, as WhatsApp sends it ("923115185775").

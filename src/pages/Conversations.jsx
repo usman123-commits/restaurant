@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { MessageSquare, ChevronRight, Search, Loader2, PhoneForwarded, Check } from 'lucide-react';
 import { useStaleData, invalidateCache } from '../hooks/useStaleData';
 import { useDebouncedValue, buildUrl } from '../hooks/usePagedList';
+import { localReadAt } from '../lib/chat';
 
 import { ConversationsSkeleton } from '../components/Skeleton';
 
@@ -38,7 +39,8 @@ export default function Conversations() {
   const listUrl = buildUrl('/api/conversations', { limit: PAGE_SIZE, offset: 0, q: debouncedSearch });
 
   // SWR for the first page
-  const { data: firstPage, revalidating, isPlaceholder } = useStaleData(listUrl);
+  // Refreshes every 30s so new messages and unread badges show up without a reload.
+  const { data: firstPage, revalidating, isPlaceholder } = useStaleData(listUrl, { pollInterval: 30000 });
 
   // SWR for active handoffs
   const { data: rawHandoffs, revalidate: revalidateHandoffs } = useStaleData(ACTIVE_HANDOFFS_URL);
@@ -144,6 +146,9 @@ export default function Conversations() {
           <div className={`bg-white rounded-xl shadow-sm divide-y divide-gray-100 transition-opacity duration-150 ${isPlaceholder ? 'opacity-50 pointer-events-none' : ''}`}>
             {filtered.map((conv) => {
               const isHandedOff = handoffSuccess[conv.phone] || activeHandoffPhones.has(String(conv.phone));
+              // Read in this tab after this list was fetched? Then nothing is unread until a newer message arrives.
+              const readHere = localReadAt(conv.phone) >= new Date(conv.lastTimestamp).getTime();
+              const unread = readHere ? 0 : conv.unread || 0;
               return (
                 <div
                   key={conv.phone}
@@ -155,16 +160,27 @@ export default function Conversations() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between">
-                      <p className="font-medium text-gray-900 truncate group-hover:text-brand-600 transition-colors">
+                      <p className={`truncate group-hover:text-brand-600 transition-colors ${unread ? 'font-bold text-gray-900' : 'font-medium text-gray-900'}`}>
                         {conv.profileName || conv.phone}
                       </p>
-                      <span className="text-xs text-gray-400 shrink-0 ml-2">
+                      <span className={`text-xs shrink-0 ml-2 ${unread ? 'text-green-600 font-semibold' : 'text-gray-400'}`}>
                         {timeAgo(conv.lastTimestamp)}
                       </span>
                     </div>
-                    <p className="text-sm text-gray-500 truncate mt-0.5">
-                      {conv.lastMessage || 'No messages'}
-                    </p>
+                    <div className="flex items-center justify-between gap-2 mt-0.5">
+                      <p className={`text-sm truncate ${unread ? 'text-gray-800 font-medium' : 'text-gray-500'}`}>
+                        {conv.lastMessage || 'No messages'}
+                      </p>
+                      {unread > 0 && (
+                        // WhatsApp-style unread badge: customer messages not seen yet
+                        <span
+                          className="shrink-0 min-w-[1.25rem] h-5 px-1.5 rounded-full bg-green-500 text-white text-[11px] font-bold flex items-center justify-center"
+                          title={`${unread} unread message${unread !== 1 ? 's' : ''}`}
+                        >
+                          {unread > 99 ? '99+' : unread}
+                        </span>
+                      )}
+                    </div>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     {/* Manual Handoff Button / Badge */}
@@ -196,11 +212,6 @@ export default function Conversations() {
                       )}
                     </button>
 
-                    {conv.messageCount > 0 && (
-                      <span className="bg-gray-100 text-gray-600 text-xs font-medium px-2 py-0.5 rounded-full">
-                        {conv.messageCount}
-                      </span>
-                    )}
                     <ChevronRight size={16} className="text-gray-300" />
                   </div>
                 </div>
