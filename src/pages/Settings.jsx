@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Save, Loader2, MessageSquare } from 'lucide-react';
 
 import { SettingsSkeleton } from '../components/Skeleton';
+import BotSettings from '../components/BotSettings';
 function Spinner({ size = 16, className = '' }) {
   return <Loader2 size={size} className={`animate-spin-slow ${className}`} />;
 }
@@ -55,6 +56,9 @@ export default function Settings() {
   return (
     <div className="space-y-6">
       <h2 className="text-2xl font-bold text-gray-900">Settings</h2>
+
+      {/* WhatsApp bot: payment message + delivery areas (each saves on its own) */}
+      <BotSettings />
 
       {/* System Prompt */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
