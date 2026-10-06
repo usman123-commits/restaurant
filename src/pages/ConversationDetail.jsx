@@ -1,9 +1,10 @@
 import { Fragment, useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, MessageSquare, Loader2, PhoneForwarded, Check } from 'lucide-react';
+import { ArrowLeft, MessageSquare, Loader2, PhoneForwarded, Check, Ban } from 'lucide-react';
 import { useStaleData, invalidateCache } from '../hooks/useStaleData';
 import { Skeleton, ChatBubblesSkeleton } from '../components/Skeleton';
 import ReportReply from '../components/ReportReply';
+import { useBlockedNumbers } from '../hooks/useBlockedNumbers';
 import { markReadLocally, localReadAt, dayKey, dayLabel, timeOfDay } from '../lib/chat';
 
 
@@ -64,6 +65,7 @@ export default function ConversationDetail() {
   // SWR for active handoffs
   const { data: rawHandoffs, revalidate: revalidateHandoffs } = useStaleData(ACTIVE_HANDOFFS_URL);
   const isHandedOff = handoffSuccess || (rawHandoffs?.phones || []).includes(String(phone));
+  const { isBlocked } = useBlockedNumbers();
 
   const total = rawData?.total ?? 0;
   const profileName = rawData?.profileName ?? phone;
@@ -204,6 +206,14 @@ export default function ConversationDetail() {
               <h2 className="text-lg font-bold text-gray-900">{profileName}</h2>
             ) : (
               <Skeleton className="h-6 w-40 my-0.5" />
+            )}
+            {isBlocked(phone) && (
+              <span
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-red-50 text-red-600 border border-red-100 text-[11px] font-bold"
+                title="The WhatsApp bot ignores this number. Unblock under Handoffs -> Blocked numbers."
+              >
+                <Ban size={12} /> Blocked -- the bot does not reply to this number
+              </span>
             )}
             {revalidating && (
               <span className="w-1.5 h-1.5 rounded-full bg-brand-400 animate-pulse" title="Refreshing..." />

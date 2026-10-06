@@ -31,11 +31,17 @@ export default function ReportReply({ message, report, onChange }) {
 
   const undo = async () => {
     setBusy(true);
+    setError('');
     try {
-      await fetch(`/api/feedback/${message._id}`, { method: 'DELETE', credentials: 'include' });
+      const r = await fetch(`/api/feedback/${message._id}`, { method: 'DELETE', credentials: 'include' });
+      // Only clear the "Reported" tag once the server confirms; otherwise the report would
+      // still be saved (and reviewed) while the screen says it's gone.
+      if (!r.ok) throw new Error('not removed');
       onChange(null);
       setNote('');
-    } catch { /* silent */ }
+    } catch {
+      setError("Couldn't undo the report. Try again.");
+    }
     setBusy(false);
   };
 
@@ -80,7 +86,10 @@ export default function ReportReply({ message, report, onChange }) {
         </span>
         {report.note && <span className="text-gray-500 line-clamp-2" title={report.note}>{report.note}</span>}
         <button type="button" onClick={() => setOpen(true)} className="text-gray-400 hover:text-gray-700">Edit</button>
-        <button type="button" onClick={undo} disabled={busy} className="text-gray-400 hover:text-gray-700">Undo</button>
+        <button type="button" onClick={undo} disabled={busy} className="text-gray-400 hover:text-gray-700">
+          {busy ? 'Undoing...' : 'Undo'}
+        </button>
+        {error && <span className="w-full text-red-600">{error}</span>}
       </div>
     );
   }

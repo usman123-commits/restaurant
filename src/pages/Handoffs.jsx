@@ -1,14 +1,15 @@
 import { useState } from 'react';
 import { PhoneForwarded, CheckCircle, Ban } from 'lucide-react';
-import { invalidateCache, useStaleData } from '../hooks/useStaleData';
+import { invalidateCache } from '../hooks/useStaleData';
 import { usePagedList, usePrefetchInto, localDayRange, buildUrl } from '../hooks/usePagedList';
 import LoadMoreButton from '../components/LoadMoreButton';
 import LoadingBar from '../components/LoadingBar';
 import DateFilterBar, { localDateStr } from '../components/DateFilterBar';
 import { HandoffsSkeleton } from '../components/Skeleton';
 import { HANDOFF_REASONS, OTHER_REASON, reasonLabel } from '../../server/shared/handoffReasons.js';
-import { normalizeNumber } from '../../server/shared/phone.js';
 import BlockedNumbersPanel from '../components/BlockedNumbersPanel';
+import ConfirmDialog from '../components/ConfirmDialog';
+import { useBlockedNumbers, BLOCKED_URL } from '../hooks/useBlockedNumbers';
 
 function timeAgo(dateStr) {
   if (!dateStr) return '';
@@ -25,7 +26,6 @@ function timeAgo(dateStr) {
 
 const HANDOFFS_URL = '/api/handoffs';
 const ACTIVE_HANDOFFS_URL = '/api/handoffs/active-phones';
-const BLOCKED_URL = '/api/blocked';
 const PAGE_SIZE = 20;
 const LIVE_REFRESH_MS = 30000;
 
@@ -57,10 +57,10 @@ export default function Handoffs() {
   const [blockBusy, setBlockBusy] = useState(null);
 
   // Numbers the bot ignores (owner's number, spam). The WhatsApp bridge reads the same list.
-  const { data: blockedData, revalidating: blockedLoading, revalidate: revalidateBlocked } = useStaleData(BLOCKED_URL);
-  const blockedNumbers = blockedData?.numbers || [];
-  const blockedSet = new Set(blockedNumbers.map((n) => n.phone));
-  const isBlocked = (phone) => blockedSet.has(normalizeNumber(phone));
+  const { numbers: blockedNumbers, loading: blockedLoading, revalidate: revalidateBlocked, isBlocked } = useBlockedNumbers();
+  // Handoff whose Block button was clicked, waiting for confirmation (null = no dialog).
+  const [confirmBlock, setConfirmBlock] = useState(null);
+  const [confirmError, setConfirmError] = useState('');
 
   const block = async ({ phone, profileName = '', note = '' }, busyKey) => {
     setBlockBusy(busyKey);
@@ -273,7 +273,8 @@ export default function Handoffs() {
                         <button
                           type="button"
                           title="The bot will ignore this number"
-                          onClick={() => block({ phone: h.phone, profileName: h.profileName || '', note: `Blocked from a ${reasonLabel(h.reason).toLowerCase()} handoff` }, h.phone)}
+                          // Ask first: Block sits next to Resolve and silently cuts the customer off from the bot.
+                          onClick={() => setConfirmBlock(h)}
                           disabled={blockBusy === h.phone}
                           className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
                         >
@@ -309,6 +310,32 @@ export default function Handoffs() {
           )}
         </div>
       </div>
+
+      <ConfirmDialog
+        open={Boolean(confirmBlock)}
+        title={`Block ${confirmBlock?.profileName || confirmBlock?.phone || ''}?`}
+        confirmLabel="Block"
+        danger
+        busy={Boolean(confirmBlock) && blockBusy === confirmBlock.phone}
+        onCancel={() => { setConfirmBlock(null); setConfirmError(''); }}
+        onConfirm={async () => {
+          const h = confirmBlock;
+          const ok = await block(
+            { phone: h.phone, profileName: h.profileName || '', note: `Blocked from a ${reasonLabel(h.reason).toLowerCase()} handoff` },
+            h.phone
+          );
+          // Never close as if it worked: staff would think the customer is blocked when they aren't.
+          if (ok) { setConfirmBlock(null); setConfirmError(''); }
+          else setConfirmError('Could not block this number. Check the number is valid and try again.');
+        }}
+      >
+        <p>
+          The WhatsApp bot will <strong>stop replying</strong> to <strong>{confirmBlock?.phone}</strong> completely,
+          including new orders.
+        </p>
+        <p className="text-gray-500">You can unblock it any time under Handoffs &rarr; Blocked numbers.</p>
+        {confirmError && <p className="text-red-600 font-medium">{confirmError}</p>}
+      </ConfirmDialog>
     </div>
   );
 }
