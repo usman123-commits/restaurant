@@ -126,6 +126,7 @@ router.post('/', async (req, res) => {
       deliveryAddress: deliveryAddress.trim() || 'Dine In',
       orderType,
       status: status.toLowerCase() || 'preparing',
+      statusHistory: [{ status: status.toLowerCase() || 'preparing', at: new Date(), by: 'dashboard' }],
       notes: notes.trim() || '',
     });
 
@@ -169,8 +170,11 @@ router.patch('/:orderId/status', async (req, res) => {
       });
     }
 
-    order.status = targetStatus;
-    await order.save();
+    if (targetStatus !== currentStatus) {
+      order.status = targetStatus;
+      order.statusHistory.push({ status: targetStatus, at: new Date(), by: 'dashboard' });
+      await order.save();
+    }
 
     res.json({ success: true, orderId, status: targetStatus });
   } catch (err) {

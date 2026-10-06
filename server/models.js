@@ -32,6 +32,9 @@ const orderSchema = new Schema({
   // value means "unknown" and the dashboard falls back to guessing from the address.
   orderType:       { type: String, enum: ORDER_TYPES },
   status:          { type: String, enum: ['preparing', 'on_the_way', 'delivered', 'cancelled'], default: 'preparing' },
+  // every status change with its time (who: 'bot' = WhatsApp agent, 'dashboard' = this app).
+  // Orders from before 2026-10-06 have none.
+  statusHistory:   [{ _id: false, status: String, at: Date, by: String }],
   notes:           { type: String, default: '' },
 }, schemaOpts);
 
