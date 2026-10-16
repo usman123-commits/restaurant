@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useStaleData, seedCache } from '../hooks/useStaleData';
 import { Banknote, MapPin, Plus, Save, Trash2, Loader2, Info } from 'lucide-react';
 import { validateAreas, findArea } from '../../server/shared/deliveryAreas.js';
 import { BotSettingsSkeleton } from './Skeleton';
@@ -28,8 +29,14 @@ function SaveButton({ saving, saved, onClick, label = 'Save' }) {
   );
 }
 
-function PaymentPanel({ initial, defaultText, onSaved }) {
-  const [text, setText] = useState(initial);
+// `serverText` is the latest value from the server (cached, then re-checked). The field
+// follows it until you start typing; from then on your text wins until you save.
+function PaymentPanel({ serverText, defaultText, onSaved }) {
+  const [text, setText] = useState(serverText);
+  const touched = useRef(false);
+  useEffect(() => {
+    if (!touched.current) setText(serverText);
+  }, [serverText]);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState('');
@@ -46,8 +53,9 @@ function PaymentPanel({ initial, defaultText, onSaved }) {
       });
       const data = await r.json();
       if (!r.ok) throw new Error(data.error || 'Could not save');
+      touched.current = false;
       setText(data.paymentInfo);
-      onSaved?.(data);
+      onSaved?.({ paymentInfo: data.paymentInfo, paymentSaved: data.paymentSaved });
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
     } catch (e) {
@@ -69,7 +77,7 @@ function PaymentPanel({ initial, defaultText, onSaved }) {
       </div>
       <textarea
         value={text}
-        onChange={(e) => setText(e.target.value)}
+        onChange={(e) => { touched.current = true; setText(e.target.value); }}
         rows={3}
         maxLength={500}
         className="w-full border border-gray-300 rounded-lg px-4 py-3 text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-brand-500 resize-y"
@@ -90,20 +98,30 @@ function PaymentPanel({ initial, defaultText, onSaved }) {
   );
 }
 
-function AreasPanel({ initialAreas, initiallySaved, menuItems }) {
-  const [rows, setRows] = useState(initialAreas.map(toRow));
-  const [isSaved, setIsSaved] = useState(initiallySaved);
+// Same rule as the payment field: follows the server's list until you edit a row.
+function AreasPanel({ serverAreas, serverSaved, menuItems, onSaved }) {
+  const [rows, setRows] = useState(serverAreas.map(toRow));
+  const [isSaved, setIsSaved] = useState(serverSaved);
+  const touched = useRef(false);
+  const serverKey = JSON.stringify(serverAreas) + String(serverSaved);
+  useEffect(() => {
+    if (touched.current) return;
+    setRows(serverAreas.map(toRow));
+    setIsSaved(serverSaved);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serverKey]);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [errors, setErrors] = useState([]);
 
-  const update = (i, field, value) => setRows(rows.map((r, j) => (j === i ? { ...r, [field]: value } : r)));
-  const remove = (i) => setRows(rows.filter((_, j) => j !== i));
-  const add = () => setRows([...rows, { name: '', charge: '', minutes: '', aliases: '' }]);
+  const edit = (next) => { touched.current = true; setRows(next); };
+  const update = (i, field, value) => edit(rows.map((r, j) => (j === i ? { ...r, [field]: value } : r)));
+  const remove = (i) => edit(rows.filter((_, j) => j !== i));
+  const add = () => edit([...rows, { name: '', charge: '', minutes: '', aliases: '' }]);
 
   // places from the old "Delivery charges" menu category that are not in the list yet
   const missing = menuItems.filter((m) => !findArea(rows, m.name));
-  const addMissing = () => setRows([...rows, ...missing.map((m) => ({ name: m.name, charge: m.charge, minutes: '', aliases: '' }))]);
+  const addMissing = () => edit([...rows, ...missing.map((m) => ({ name: m.name, charge: m.charge, minutes: '', aliases: '' }))]);
 
   const save = async () => {
     const check = validateAreas(rows);
@@ -119,8 +137,10 @@ function AreasPanel({ initialAreas, initiallySaved, menuItems }) {
       });
       const data = await r.json();
       if (!r.ok) throw new Error(data.error || 'Could not save');
+      touched.current = false;
       setRows(data.deliveryAreas.map(toRow));
       setIsSaved(true);
+      onSaved?.({ deliveryAreas: data.deliveryAreas, deliverySaved: true });
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
     } catch (e) {
@@ -221,23 +241,26 @@ function AreasPanel({ initialAreas, initiallySaved, menuItems }) {
   );
 }
 
+const BOT_SETTINGS_URL = '/api/settings/bot';
+
 export default function BotSettings() {
-  const [data, setData] = useState(null);
-  const [error, setError] = useState('');
+  // Cached in memory like the other pages: reopening Settings shows the last values
+  // instantly and quietly re-checks them with the server.
+  const { data, revalidating, revalidate } = useStaleData(BOT_SETTINGS_URL);
 
-  useEffect(() => {
-    fetch('/api/settings/bot', { credentials: 'include' })
-      .then((r) => r.json())
-      .then((d) => (d.error ? setError(d.error) : setData(d)))
-      .catch(() => setError('Could not load the bot settings'));
-  }, []);
+  // After a save: the panel already shows the saved values; update the cache so
+  // reopening Settings shows them too, then confirm with the server.
+  const onSaved = (patch) => {
+    if (data) seedCache(BOT_SETTINGS_URL, { ...data, ...patch }, Date.now());
+    revalidate();
+  };
 
-  if (error) return <p className="text-sm text-red-600">{error}</p>;
-  if (!data) return <BotSettingsSkeleton />;
+  if (!data && revalidating) return <BotSettingsSkeleton />;
+  if (!data || data.error) return <p className="text-sm text-red-600">Could not load the bot settings</p>;
   return (
     <div className="space-y-6">
-      <PaymentPanel initial={data.paymentInfo} defaultText={data.paymentDefault} />
-      <AreasPanel initialAreas={data.deliveryAreas} initiallySaved={data.deliverySaved} menuItems={data.menuDeliveryItems} />
+      <PaymentPanel serverText={data.paymentInfo} defaultText={data.paymentDefault} onSaved={onSaved} />
+      <AreasPanel serverAreas={data.deliveryAreas} serverSaved={data.deliverySaved} menuItems={data.menuDeliveryItems} onSaved={onSaved} />
     </div>
   );
 }
