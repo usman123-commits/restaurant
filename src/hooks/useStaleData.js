@@ -3,10 +3,31 @@ import { useState, useEffect, useRef } from "react";
 /**
  * Module-level in-memory cache -- survives component unmount/remount
  * but resets on full page refresh (intentional: keeps data fresh).
+ * Memory only: nothing is written to localStorage, sessionStorage or IndexedDB.
  *
  * Shape: Map<key, { data: any, fetchedAt: number }>
+ *
+ * Capped at MAX_ENTRIES, least recently used first out, so a tab left open all day
+ * (every filter, page and chat ever opened is a key) doesn't keep growing.
  */
+const MAX_ENTRIES = 200;
 const cache = new Map();
+
+function cacheGet(key) {
+  const entry = cache.get(key);
+  if (entry) {
+    // move to the end = most recently used
+    cache.delete(key);
+    cache.set(key, entry);
+  }
+  return entry;
+}
+
+function cacheSet(key, entry) {
+  cache.delete(key);
+  cache.set(key, entry);
+  while (cache.size > MAX_ENTRIES) cache.delete(cache.keys().next().value);
+}
 
 /**
  * useStaleData -- Stale-While-Revalidate hook.
@@ -34,7 +55,7 @@ const cache = new Map();
  *   isPlaceholder - true while `data` still belongs to a previous URL.
  */
 export function useStaleData(url, { pollInterval = 0, transform } = {}) {
-  const cached = cache.get(url);
+  const cached = cacheGet(url);
 
   // `shown.url` is the URL that `shown.data` belongs to.
   const [shown, setShown] = useState(() => ({ url, data: cached?.data ?? null }));
@@ -57,7 +78,7 @@ export function useStaleData(url, { pollInterval = 0, transform } = {}) {
       const json = await res.json();
       const result = transform ? transform(json) : json;
 
-      cache.set(requestUrl, { data: result, fetchedAt: Date.now() });
+      cacheSet(requestUrl, { data: result, fetchedAt: Date.now() });
 
       // Ignore responses for a URL we've already moved away from.
       if (isMounted.current && currentUrl.current === requestUrl) {
@@ -118,5 +139,5 @@ export function invalidateCache(url) {
  */
 export function seedCache(url, data, fetchedAt) {
   const existing = cache.get(url);
-  if (!existing || existing.fetchedAt < fetchedAt) cache.set(url, { data, fetchedAt });
+  if (!existing || existing.fetchedAt < fetchedAt) cacheSet(url, { data, fetchedAt });
 }

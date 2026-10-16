@@ -5,12 +5,23 @@ import { useStaleData, invalidateCache } from '../hooks/useStaleData';
 import { Skeleton, ChatBubblesSkeleton } from '../components/Skeleton';
 import ReportReply from '../components/ReportReply';
 import { useBlockedNumbers } from '../hooks/useBlockedNumbers';
+import { getOlder as getCachedOlder, setOlder as setCachedOlder } from '../lib/chatCache';
 import { markReadLocally, localReadAt, dayKey, dayLabel, timeOfDay } from '../lib/chat';
 
 
 // Phones with an unresolved handoff (small lookup, not the full handoff history).
 const ACTIVE_HANDOFFS_URL = '/api/handoffs/active-phones';
 const MSG_LIMIT = 20;
+// Page size for the quiet re-check of cached older messages (the API's maximum).
+const RECHECK_PAGE = 100;
+
+// Older-messages state for a chat, starting from what this tab already loaded before.
+function olderFromCache(phone) {
+  const c = getCachedOlder(phone);
+  return c
+    ? { phone, messages: c.messages, nextCursor: c.nextCursor, loaded: true }
+    : { phone, messages: [], nextCursor: null, loaded: false };
+}
 
 // [{ key, at, items: [{ msg, i }] }] -- consecutive messages per calendar day, in order.
 // `i` is the index in the full list (used to look at the previous message).
@@ -40,9 +51,11 @@ const BOT_ON_RIGHT = false;
 export default function ConversationDetail() {
   const { phone } = useParams();
   const navigate = useNavigate();
-  // Older pages loaded via "Load older" -- kept outside the SWR cache, which only
-  // holds the newest page so revisits stay instant and cheap.
-  const [older, setOlder] = useState({ messages: [], nextCursor: null, loaded: false });
+  // Older pages loaded via "Load older". The newest page is cached by useStaleData;
+  // these live in lib/chatCache.js (last 30 chats) so coming back keeps them.
+  // Tagged with the phone so one render with the previous chat's state can't leak in.
+  const [olderState, setOlder] = useState(() => olderFromCache(phone));
+  const older = olderState.phone === phone ? olderState : olderFromCache(phone);
   const [loadingMore, setLoadingMore] = useState(false);
   const [handingOff, setHandingOff] = useState(false);
   const [handoffSuccess, setHandoffSuccess] = useState(false);
@@ -52,11 +65,27 @@ export default function ConversationDetail() {
   const scrollRef = useRef(null);
   const prependAnchor = useRef(null);
 
+  // Re-check only chats opened WITH remembered older messages -- not right after you
+  // load them yourself. Decided each time a chat is opened (this page stays mounted
+  // when you switch from one chat to another).
+  const recheckPending = useRef(false);
   useEffect(() => {
-    setOlder({ messages: [], nextCursor: null, loaded: false });
+    const fromCache = olderFromCache(phone);
+    recheckPending.current = fromCache.loaded;
+    setOlder(fromCache);
     setHandoffSuccess(false);
     setReports({});
   }, [phone]);
+
+  // Remember what's loaded for next time.
+  useEffect(() => {
+    if (olderState.phone === phone && olderState.loaded) {
+      setCachedOlder(phone, { messages: olderState.messages, nextCursor: olderState.nextCursor });
+    }
+  }, [olderState, phone]);
+
+  // Bumped whenever the user loads more, so an in-flight re-check never overwrites newer state.
+  const olderVersion = useRef(0);
 
   const { data: rawData, revalidating } = useStaleData(
     `/api/conversations/${encodeURIComponent(phone)}?limit=${MSG_LIMIT}`
@@ -82,6 +111,44 @@ export default function ConversationDetail() {
 
   const nextCursor = older.loaded ? older.nextCursor : rawData?.nextCursor ?? null;
   const hasMore = Boolean(nextCursor);
+
+  // ---- Quiet re-check of cached older messages ----
+  // Reopening a chat shows the remembered older messages instantly, then re-fetches the
+  // same range in the background (up to 100 per request) and swaps in the fresh copy.
+  // That picks up anything changed elsewhere, e.g. a reply reported on another device.
+  const startCursor = rawData?.nextCursor || null; // just below the newest page
+  useEffect(() => {
+    if (!recheckPending.current) return;
+    if (!older.loaded || !older.messages.length || !startCursor) return;
+    recheckPending.current = false;
+    const version = olderVersion.current;
+    const want = older.messages.length;
+    let cancelled = false;
+    (async () => {
+      try {
+        const pages = [];
+        let cursor = startCursor;
+        let got = 0;
+        while (cursor && got < want) {
+          const res = await fetch(
+            `/api/conversations/${encodeURIComponent(phone)}?limit=${RECHECK_PAGE}&before=${encodeURIComponent(cursor)}`,
+            { credentials: 'include' }
+          );
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const page = await res.json();
+          pages.unshift(page.messages || []); // each page is older than the previous one
+          got += (page.messages || []).length;
+          cursor = page.nextCursor || null;
+        }
+        // Skip if the chat changed or the user loaded more meanwhile.
+        if (cancelled || olderVersion.current !== version) return;
+        setOlder({ phone, messages: pages.flat(), nextCursor: cursor, loaded: true });
+        setReports({}); // fresh "Reported" tags came with the messages
+      } catch { /* keep the cached copy; it was correct when loaded */ }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phone, startCursor, older.loaded]);
 
   // ---- Unread divider + mark as read ----
   // The read point as it was when this chat was opened (taken once per visit), so the
@@ -149,7 +216,9 @@ export default function ConversationDetail() {
       if (el) prependAnchor.current = el.scrollHeight - el.scrollTop;
       // Snapshot what's on screen too: if a new message later pushes the oldest
       // message out of the cached newest-20 page, it must not fall into a gap.
+      olderVersion.current += 1;
       setOlder({
+        phone,
         messages: [...(data.messages || []), ...messages],
         nextCursor: data.nextCursor || null,
         loaded: true,
@@ -335,7 +404,13 @@ export default function ConversationDetail() {
                             <ReportReply
                               message={msg}
                               report={msg._id in reports ? reports[msg._id] : msg.report || null}
-                              onChange={(r) => setReports((prev) => ({ ...prev, [msg._id]: r }))}
+                              onChange={(r) => {
+                                setReports((prev) => ({ ...prev, [msg._id]: r }));
+                                // keep the remembered older messages in step, so coming back shows the same tag
+                                setOlder((prev) => (prev.phone === phone
+                                  ? { ...prev, messages: prev.messages.map((m) => (m._id === msg._id ? { ...m, report: r || undefined } : m)) }
+                                  : prev));
+                              }}
                             />
                           )}
                         </div>
