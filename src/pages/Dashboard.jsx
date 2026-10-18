@@ -9,6 +9,7 @@ import {
   ChevronRight, ArrowRight, UtensilsCrossed
 } from 'lucide-react';
 import StatCard from '../components/StatCard';
+import LiveBoard from '../components/LiveBoard';
 import { useStaleData } from '../hooks/useStaleData';
 
 import { DashboardSkeleton } from '../components/Skeleton';
@@ -107,6 +108,9 @@ export default function Dashboard() {
           <span className="w-2 h-2 rounded-full bg-brand-400 animate-pulse" title="Refreshing..." />
         )}
       </div>
+
+      {/* Orders right now (preparing / on the way) */}
+      <LiveBoard />
 
       {/* Stat cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

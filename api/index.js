@@ -15,6 +15,7 @@ import settingsRoutes from '../server/routes/settings.js';
 import spendRoutes from '../server/routes/spend.js';
 import blockedRoutes from '../server/routes/blocked.js';
 import feedbackRoutes from '../server/routes/feedback.js';
+import insightsRoutes from '../server/routes/insights.js';
 
 // ─── Serverless-safe MongoDB connection ──────────────────────────────────────
 // In serverless (Vercel), the module is re-imported per cold start but the
@@ -72,6 +73,7 @@ app.use('/api/settings', settingsRoutes);
 app.use('/api/spend', spendRoutes);
 app.use('/api/blocked', blockedRoutes);
 app.use('/api/feedback', feedbackRoutes);
+app.use('/api/insights', insightsRoutes);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', dbState: mongoose.connection.readyState });
