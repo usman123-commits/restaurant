@@ -1,16 +1,16 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer, Cell
+  AreaChart, Area, XAxis, YAxis, CartesianGrid,
+  Tooltip, ResponsiveContainer
 } from 'recharts';
 import {
   ShoppingBag, DollarSign, TrendingUp, Target,
   ChevronRight, ArrowRight, UtensilsCrossed
 } from 'lucide-react';
-import StatCard from '../components/StatCard';
-import LiveBoard from '../components/LiveBoard';
-import BusinessSections from '../components/BusinessSections';
+import {
+  useInsights, DemoBanner, PeriodTiles, Tile, Segmented, RANGES, SpendsChart, MostSpends, AreasTable, CustomerLists,
+} from '../components/BusinessSections';
 import { useStaleData } from '../hooks/useStaleData';
 
 import { DashboardSkeleton } from '../components/Skeleton';
@@ -61,6 +61,9 @@ function CustomTooltip({ active, payload, label, prefix = '', suffix = '' }) {
 export default function Dashboard() {
   const [revenuePeriod, setRevenuePeriod] = useState('7d');
   const { data, revalidating } = useStaleData('/api/analytics');
+  // spends, delivery areas and customers for the chosen period (7 / 30 / 90 days)
+  const [days, setDays] = useState('30');
+  const ins = useInsights(days);
 
   // Only block render if we have absolutely no data yet (very first ever load)
   if (!data && revalidating) {
@@ -99,47 +102,38 @@ export default function Dashboard() {
 
   // Max count for all 24 hours opacity calculations
   const maxHourCount = Math.max(...ordersByHour.map((h) => h.count || 0), 1);
+  const busiestHour = ordersByHour.findIndex((h) => (h.count || 0) === maxHourCount);
 
   return (
     <div className="space-y-6">
       {/* Page Header */}
-      <div className="flex items-center gap-2 pl-12 lg:pl-0 min-h-[36px]">
-        <h2 className="text-2xl font-bold text-gray-900">Analytics Overview</h2>
-        {revalidating && (
-          <span className="w-2 h-2 rounded-full bg-brand-400 animate-pulse" title="Refreshing..." />
-        )}
+      <div className="flex flex-wrap items-center justify-between gap-3 pl-12 lg:pl-0">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+            Analytics Overview
+            {(revalidating || ins.isPlaceholder) && (
+              <span className="w-2 h-2 rounded-full bg-brand-400 animate-pulse" title="Refreshing..." />
+            )}
+          </h2>
+          <p className="text-xs text-gray-500 mt-0.5">
+            Spends, areas and customers: last {days} days, compared with the {days} days before
+          </p>
+        </div>
+        <Segmented options={RANGES} value={days} onChange={setDays} />
       </div>
 
-      {/* Orders right now (preparing / on the way) */}
-      <LiveBoard />
+      <DemoBanner demo={ins.data?.demo} />
 
-      {/* Stat cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard
-          title="Today's Orders"
-          value={fmt(todayOrders)}
-          icon={ShoppingBag}
-          color="brand"
-        />
-        <StatCard
-          title="Today's Revenue"
-          value={`Rs. ${fmt(todayRevenue)}`}
-          icon={DollarSign}
-          color="green"
-        />
-        <StatCard
-          title="Total Orders"
-          value={fmt(totalOrders)}
-          icon={TrendingUp}
-          color="blue"
-        />
-        <StatCard
-          title="Avg Order Value"
-          value={`Rs. ${fmt(avgOrderValue)}`}
-          subtitle={conversionRate != null ? `Conversion: ${(conversionRate * 100).toFixed(1)}%` : undefined}
-          icon={Target}
-          color="purple"
-        />
+      {/* All stat cards together: today, then the chosen period */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+        <Tile label="Today's Orders" value={fmt(todayOrders)} icon={ShoppingBag} tone="brand" />
+        <Tile label="Today's Revenue" value={`Rs. ${fmt(todayRevenue)}`} icon={DollarSign} tone="green" />
+        <Tile label="Total Orders" value={fmt(totalOrders)} icon={TrendingUp} tone="blue" foot="All time" />
+        <Tile label="Avg Order Value" value={`Rs. ${fmt(avgOrderValue)}`} icon={Target} tone="purple"
+          foot={conversionRate != null ? `Conversion: ${(conversionRate * 100).toFixed(1)}%` : undefined} />
+        {ins.data
+          ? <PeriodTiles data={ins.data} />
+          : [0, 1, 2, 3].map((i) => <div key={i} className="h-[132px] rounded-2xl bg-gray-100 animate-pulse" />)}
       </div>
 
       {/* Revenue Chart Card (Full Width) */}
@@ -237,22 +231,32 @@ export default function Dashboard() {
         )}
       </div>
 
-      {/* Bottom Grid: Orders by Hour & Top Menu Items */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {/* Spends graph */}
+      {ins.data && <SpendsChart key={days} series={ins.data.spendSeries} days={days} />}
+
         {/* Orders by Hour of Day Card (All 24 Hours) */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between mb-6">
               <div>
                 <h3 className="text-lg font-bold text-gray-900">Orders by Hour</h3>
-                <p className="text-xs text-gray-400 font-medium mt-0.5">All 24 hours (12 AM - 11 PM)</p>
+                <p className="text-xs text-gray-400 font-medium mt-0.5">
+                  All 24 hours (12 AM - 11 PM)
+                  {busiestHour >= 0 && ordersByHour[busiestHour]?.count > 0 && ` · busiest: ${ordersByHour[busiestHour].label} (${ordersByHour[busiestHour].count} orders)`}
+                </p>
               </div>
             </div>
 
             {ordersByHour.length > 0 ? (
               <div className="w-full h-64 sm:h-72">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={ordersByHour} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                  <AreaChart data={ordersByHour} margin={{ top: 30, right: 16, left: -20, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="hourGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#ed7a0e" stopOpacity={0.35} />
+                        <stop offset="100%" stopColor="#ed7a0e" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
                     <XAxis
                       dataKey="label"
@@ -269,19 +273,23 @@ export default function Dashboard() {
                       tick={{ fill: '#9ca3af', fontSize: 12 }}
                     />
                     <Tooltip content={<CustomTooltip suffix=" orders" />} />
-                    <Bar dataKey="count" radius={[5, 5, 0, 0]} maxBarSize={24}>
-                      {ordersByHour.map((entry, index) => {
-                        const intensity = entry.count > 0 ? 0.35 + 0.65 * (entry.count / maxHourCount) : 0.2;
-                        return (
-                          <Cell
-                            key={`cell-${index}`}
-                            fill="#ed7a0e"
-                            fillOpacity={intensity}
-                          />
-                        );
-                      })}
-                    </Bar>
-                  </BarChart>
+                    <Area
+                      type="monotone"
+                      dataKey="count"
+                      stroke="#ed7a0e"
+                      strokeWidth={2.5}
+                      fill="url(#hourGrad)"
+                      activeDot={{ r: 5, fill: '#ed7a0e', stroke: '#fff', strokeWidth: 2 }}
+                      dot={({ cx, cy, index }) =>
+                        index === busiestHour && maxHourCount > 0 ? (
+                          <g key={index}>
+                            <circle cx={cx} cy={cy} r={5} fill="#ed7a0e" stroke="#fff" strokeWidth={2} />
+                            <text x={cx} y={cy - 12} textAnchor="middle" fontSize={11} fontWeight={600} fill="#b8480a">busiest</text>
+                          </g>
+                        ) : <g key={index} />
+                      }
+                    />
+                  </AreaChart>
                 </ResponsiveContainer>
               </div>
             ) : (
@@ -290,6 +298,8 @@ export default function Dashboard() {
           </div>
         </div>
 
+      {/* Lists: Top Menu Items next to Most spends */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Top Menu Items List */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 flex flex-col justify-between">
           <div>
@@ -353,10 +363,16 @@ export default function Dashboard() {
             </Link>
           </div>
         </div>
+        {ins.data && <MostSpends categories={ins.data.spendCategories} total={ins.data.money.totals.spends} />}
       </div>
 
-      {/* Spends, delivery areas and customers for a chosen period */}
-      <BusinessSections />
+      {ins.data && (
+        <>
+          <AreasTable areas={ins.data.areas} />
+          <CustomerLists c={ins.data.customers} />
+        </>
+      )}
+      {ins.error && <p className="text-sm text-red-600">{ins.error}</p>}
     </div>
   );
 }
