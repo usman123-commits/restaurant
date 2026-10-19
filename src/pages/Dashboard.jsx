@@ -13,7 +13,9 @@ import {
 } from '../components/BusinessSections';
 import { useStaleData } from '../hooks/useStaleData';
 
-import { DashboardSkeleton } from '../components/Skeleton';
+import {
+  DashboardSkeleton, TileSkeleton, ChartCardSkeleton, ListCardSkeleton, TableCardSkeleton,
+} from '../components/Skeleton';
 function fmt(n) {
   return Number(n || 0).toLocaleString('en-PK');
 }
@@ -133,7 +135,7 @@ export default function Dashboard() {
           foot={conversionRate != null ? `Conversion: ${(conversionRate * 100).toFixed(1)}%` : undefined} />
         {ins.data
           ? <PeriodTiles data={ins.data} />
-          : [0, 1, 2, 3].map((i) => <div key={i} className="h-[132px] rounded-2xl bg-gray-100 animate-pulse" />)}
+          : [0, 1, 2, 3].map((i) => <TileSkeleton key={i} />)}
       </div>
 
       {/* Revenue Chart Card (Full Width) */}
@@ -232,7 +234,7 @@ export default function Dashboard() {
       </div>
 
       {/* Spends graph */}
-      {ins.data && <SpendsChart key={days} series={ins.data.spendSeries} days={days} />}
+      {ins.data ? <SpendsChart key={days} series={ins.data.spendSeries} days={days} /> : <ChartCardSkeleton title="Spends" />}
 
         {/* Orders by Hour of Day Card (All 24 Hours) */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 flex flex-col justify-between">
@@ -363,13 +365,23 @@ export default function Dashboard() {
             </Link>
           </div>
         </div>
-        {ins.data && <MostSpends categories={ins.data.spendCategories} total={ins.data.money.totals.spends} />}
+        {ins.data
+          ? <MostSpends categories={ins.data.spendCategories} total={ins.data.money.totals.spends} />
+          : <ListCardSkeleton title="Most spends" />}
       </div>
 
-      {ins.data && (
+      {ins.data ? (
         <>
           <AreasTable areas={ins.data.areas} />
           <CustomerLists c={ins.data.customers} />
+        </>
+      ) : !ins.error && (
+        <>
+          <TableCardSkeleton title="Delivery areas" />
+          <div className="grid gap-4 lg:grid-cols-2">
+            <ListCardSkeleton title="Top customers" avatar="rounded-full" />
+            <ListCardSkeleton title="Haven't ordered for 30+ days" avatar="rounded-full" />
+          </div>
         </>
       )}
       {ins.error && <p className="text-sm text-red-600">{ins.error}</p>}

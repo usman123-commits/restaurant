@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import Sidebar from './components/Sidebar';
+import { forgetSavedLists } from './lib/restore';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Orders from './pages/Orders';
@@ -37,6 +38,8 @@ export default function App() {
 
   const setAuthenticated = (value) => {
     writeHint(value === true);
+    // logged out or session expired: delete the saved lists from this browser
+    if (value === false) forgetSavedLists();
     setAuthenticatedState(value);
   };
 

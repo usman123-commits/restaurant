@@ -1,9 +1,12 @@
 import { useState, useEffect, useRef } from "react";
+import { persistable, persistSet, persistDelete } from "../lib/persist";
 
 /**
  * Module-level in-memory cache -- survives component unmount/remount
  * but resets on full page refresh (intentional: keeps data fresh).
- * Memory only: nothing is written to localStorage, sessionStorage or IndexedDB.
+ * List responses (Orders, Handoffs, Spend) are also saved to IndexedDB (lib/persist.js) and
+ * put back here on startup (restoreCache), so a refresh shows them instantly; everything
+ * else is memory only.
  *
  * Shape: Map<key, { data: any, fetchedAt: number }>
  *
@@ -23,10 +26,21 @@ function cacheGet(key) {
   return entry;
 }
 
-function cacheSet(key, entry) {
+function cacheSet(key, entry, { persist = true } = {}) {
   cache.delete(key);
   cache.set(key, entry);
   while (cache.size > MAX_ENTRIES) cache.delete(cache.keys().next().value);
+  if (persist && persistable(key)) persistSet(`page1:${key}`, entry);
+}
+
+/** Startup: put a saved copy (from IndexedDB) back into the cache. */
+export function restoreCache(url, entry) {
+  if (entry?.data != null && !cache.has(url)) cacheSet(url, entry, { persist: false });
+}
+
+/** Logout: forget everything held in memory. */
+export function clearMemoryCache() {
+  cache.clear();
 }
 
 /**
@@ -130,6 +144,7 @@ export function useStaleData(url, { pollInterval = 0, transform } = {}) {
 /** Manually invalidate a cache entry (call after mutations). */
 export function invalidateCache(url) {
   cache.delete(url);
+  if (persistable(url)) persistDelete(`page1:${url}`);
 }
 
 /**
