@@ -3,6 +3,30 @@ import { useStaleData, seedCache } from './useStaleData';
 
 const EMPTY = { url: null, items: [], nextCursor: null };
 
+// Rows loaded with "Load more", remembered per list URL (= per filter combination), so
+// leaving the page and coming back keeps them instead of making you load them again.
+// Memory only, like chatCache (cleared on refresh; nothing in localStorage, sessionStorage
+// or IndexedDB). Keeps the MAX_LISTS most recently used lists.
+const MAX_LISTS = 50;
+const loadedPages = new Map(); // url -> { url, items, nextCursor }
+
+function pagesGet(url) {
+  const entry = loadedPages.get(url);
+  if (entry) {
+    loadedPages.delete(url);
+    loadedPages.set(url, entry); // most recently used
+  }
+  return entry || EMPTY;
+}
+
+function pagesSet(entry) {
+  loadedPages.delete(entry.url);
+  loadedPages.set(entry.url, entry);
+  while (loadedPages.size > MAX_LISTS) loadedPages.delete(loadedPages.keys().next().value);
+}
+
+const pathOf = (url) => url.split('?')[0];
+
 export function dedupeById(items) {
   const seen = new Set();
   return items.filter((it) => {
@@ -23,8 +47,8 @@ function withCursor(url, cursor) {
  *
  * - The first page is cached per URL (so the filters must be part of `url`):
  *   revisiting or switching back to a filter shows data instantly, then revalidates.
- * - Extra pages are local state tagged with the URL they belong to; changing any
- *   filter (= a new URL) drops them automatically.
+ * - Extra pages are kept per URL in a memory cache (`loadedPages`), so they survive
+ *   leaving the page and switching filters; each filter combination has its own.
  * - When loading more, the current first page is snapshotted into the extra list.
  *   Otherwise a row pushed off the first page by a newer row (after revalidation)
  *   would fall into the gap between page 1 and page 2 and vanish.
@@ -38,7 +62,13 @@ function withCursor(url, cursor) {
  */
 export function usePagedList(url, itemsKey, options) {
   const { data, revalidating, isPlaceholder, revalidate } = useStaleData(url, options);
-  const [extra, setExtra] = useState(EMPTY);
+  // extra pages for this URL live in loadedPages; `version` re-renders after a change
+  const [, setVersion] = useState(0);
+  const extra = pagesGet(url);
+  const setExtra = useCallback((entry) => {
+    pagesSet(entry);
+    setVersion((v) => v + 1);
+  }, []);
   const [loadingMore, setLoadingMore] = useState(false);
   const urlRef = useRef(url);
   urlRef.current = url;
@@ -75,10 +105,17 @@ export function usePagedList(url, itemsKey, options) {
     }
   };
 
-  // Apply a local change (status update, delete) to rows held outside the cache.
+  // Apply a local change (status update, delete) to the loaded rows of this list. Other
+  // filters' loaded rows of the same list are dropped: a status change can move a row to
+  // another tab, so their copies may be wrong (they load again with Load more).
   const mutateItems = useCallback((fn) => {
-    setExtra((prev) => (prev.url ? { ...prev, items: fn(prev.items) } : prev));
-  }, []);
+    const current = urlRef.current;
+    for (const key of [...loadedPages.keys()]) {
+      if (key !== current && pathOf(key) === pathOf(current)) loadedPages.delete(key);
+    }
+    const entry = loadedPages.get(current);
+    if (entry) setExtra({ ...entry, items: fn(entry.items) });
+  }, [setExtra]);
 
   return { data, items, hasMore: Boolean(nextCursor), loadMore, loadingMore, revalidating, isPlaceholder, revalidate, mutateItems };
 }
