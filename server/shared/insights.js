@@ -61,11 +61,59 @@ export function moneySeries(orders, spends, { from, to, tz = TZ } = {}) {
   };
 }
 
-// Spends per category (for the pie), biggest first
+// Spends over time for the spends graph: per day and per week (weeks start Monday), each with
+// its biggest entries. A bucket whose top entry is a one-off (rent, salaries: at least twice the
+// usual bucket and Rs. 10,000+) gets `highlight` so the graph can label it.
+// -> { daily: [{ key, label, amount, count, entries, highlight }], weekly: [...same] }
+export function spendSeries(spends, { from, to, tz = TZ } = {}) {
+  const days = new Map();
+  for (let t = +from; t < +to; t += DAY) days.set(dayKey(t, tz), []);
+  const last = dayKey(+to - 1, tz);
+  if (!days.has(last)) days.set(last, []);
+  for (const s of spends) {
+    const list = days.get(dayKey(s.timestamp, tz));
+    if (list) list.push({ category: s.category || 'Other', description: s.description || '', amount: Number(s.amount) || 0 });
+  }
+  const noon = (k) => new Date(`${k}T12:00:00Z`);
+  const fmtDay = (k) => noon(k).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const weekOf = (k) => {
+    const d = noon(k);
+    d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
+    return d.toISOString().slice(0, 10);
+  };
+  const bucket = (key, label, entries) => {
+    const sorted = [...entries].sort((a, b) => b.amount - a.amount);
+    return { key, label, amount: sorted.reduce((s, e) => s + e.amount, 0), count: sorted.length, entries: sorted.slice(0, 6) };
+  };
+  const sortedDays = [...days].sort(([a], [b]) => a.localeCompare(b));
+  const daily = sortedDays.map(([k, list]) => bucket(k, fmtDay(k), list));
+  const weeks = new Map();
+  for (const [k, list] of sortedDays) {
+    const w = weekOf(k);
+    weeks.set(w, (weeks.get(w) || []).concat(list));
+  }
+  const weekly = [...weeks].map(([k, list]) => bucket(k, `Week of ${fmtDay(k)}`, list));
+  const flag = (rows) => {
+    const vals = rows.map((r) => r.amount).filter(Boolean).sort((a, b) => a - b);
+    const median = vals.length ? vals[Math.floor(vals.length / 2)] : 0;
+    return rows.map((r) => {
+      const top = r.entries[0];
+      return top && top.amount >= 10000 && top.amount >= 2 * median ? { ...r, highlight: { amount: top.amount, category: top.category } } : r;
+    });
+  };
+  return { daily: flag(daily), weekly: flag(weekly) };
+}
+
+// Spends per category, biggest first (count = number of entries)
 export function spendsByCategory(spends) {
   const m = new Map();
-  for (const s of spends) m.set(s.category || 'Other', (m.get(s.category || 'Other') || 0) + (Number(s.amount) || 0));
-  return [...m].map(([category, amount]) => ({ category, amount })).sort((a, b) => b.amount - a.amount);
+  for (const s of spends) {
+    const c = m.get(s.category || 'Other') || { category: s.category || 'Other', amount: 0, count: 0 };
+    c.amount += Number(s.amount) || 0;
+    c.count += 1;
+    m.set(c.category, c);
+  }
+  return [...m.values()].sort((a, b) => b.amount - a.amount);
 }
 
 // Orders and revenue per delivery area (WhatsApp + On Call; dine-in has no area)

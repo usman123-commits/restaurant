@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import StatCard from '../components/StatCard';
 import LiveBoard from '../components/LiveBoard';
+import BusinessSections from '../components/BusinessSections';
 import { useStaleData } from '../hooks/useStaleData';
 
 import { DashboardSkeleton } from '../components/Skeleton';
@@ -102,7 +103,7 @@ export default function Dashboard() {
   return (
     <div className="space-y-6">
       {/* Page Header */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 pl-12 lg:pl-0 min-h-[36px]">
         <h2 className="text-2xl font-bold text-gray-900">Analytics Overview</h2>
         {revalidating && (
           <span className="w-2 h-2 rounded-full bg-brand-400 animate-pulse" title="Refreshing..." />
@@ -353,6 +354,9 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
+      {/* Spends, delivery areas and customers for a chosen period */}
+      <BusinessSections />
     </div>
   );
 }

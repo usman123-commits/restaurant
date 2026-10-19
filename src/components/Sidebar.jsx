@@ -1,7 +1,6 @@
 import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard,
-  BarChart3,
   ShoppingBag,
   MessageSquare,
   UtensilsCrossed,
@@ -14,7 +13,6 @@ import {
 
 const links = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
-  { to: '/insights', label: 'Insights', icon: BarChart3 },
   { to: '/orders', label: 'Orders', icon: ShoppingBag },
   { to: '/conversations', label: 'Conversations', icon: MessageSquare },
   { to: '/menu', label: 'Menu', icon: UtensilsCrossed },
