@@ -1,12 +1,13 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useStaleData, seedCache } from './useStaleData';
+import { persistSet, persistDelete } from '../lib/persist';
 
 const EMPTY = { url: null, items: [], nextCursor: null };
 
 // Rows loaded with "Load more", remembered per list URL (= per filter combination), so
 // leaving the page and coming back keeps them instead of making you load them again.
-// Memory only, like chatCache (cleared on refresh; nothing in localStorage, sessionStorage
-// or IndexedDB). Keeps the MAX_LISTS most recently used lists.
+// Also saved to IndexedDB (lib/persist.js), so they survive a refresh too; restored on
+// startup by restorePages. Keeps the MAX_LISTS most recently used lists.
 const MAX_LISTS = 50;
 const loadedPages = new Map(); // url -> { url, items, nextCursor }
 
@@ -19,10 +20,26 @@ function pagesGet(url) {
   return entry || EMPTY;
 }
 
-function pagesSet(entry) {
+function pagesDelete(url) {
+  loadedPages.delete(url);
+  persistDelete(`more:${url}`);
+}
+
+function pagesSet(entry, { persist = true } = {}) {
   loadedPages.delete(entry.url);
   loadedPages.set(entry.url, entry);
-  while (loadedPages.size > MAX_LISTS) loadedPages.delete(loadedPages.keys().next().value);
+  while (loadedPages.size > MAX_LISTS) pagesDelete(loadedPages.keys().next().value);
+  if (persist) persistSet(`more:${entry.url}`, entry);
+}
+
+/** Startup: put saved "Load more" rows (from IndexedDB) back. */
+export function restorePages(entry) {
+  if (entry?.url && Array.isArray(entry.items) && !loadedPages.has(entry.url)) pagesSet(entry, { persist: false });
+}
+
+/** Logout: forget the loaded rows held in memory. */
+export function clearMemoryPages() {
+  loadedPages.clear();
 }
 
 const pathOf = (url) => url.split('?')[0];
@@ -111,7 +128,7 @@ export function usePagedList(url, itemsKey, options) {
   const mutateItems = useCallback((fn) => {
     const current = urlRef.current;
     for (const key of [...loadedPages.keys()]) {
-      if (key !== current && pathOf(key) === pathOf(current)) loadedPages.delete(key);
+      if (key !== current && pathOf(key) === pathOf(current)) pagesDelete(key);
     }
     const entry = loadedPages.get(current);
     if (entry) setExtra({ ...entry, items: fn(entry.items) });

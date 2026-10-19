@@ -211,30 +211,109 @@ export function ChatBubblesSkeleton() {
   );
 }
 
+// ---- Dashboard pieces (also used by the Dashboard itself while one section is still loading)
+
+export function TileSkeleton() {
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5" aria-hidden="true">
+      <div className="flex items-center justify-between">
+        <Skeleton className="h-3.5 w-28" />
+        <Skeleton className="h-9 w-9 rounded-xl" />
+      </div>
+      <Skeleton className="h-7 w-32 mt-3" />
+      <Skeleton className="h-3 w-40 mt-3" />
+    </div>
+  );
+}
+
+function CardShell({ title, subtitle = true, right, children }) {
+  return (
+    <div className="min-w-0 bg-white rounded-2xl border border-gray-100 shadow-sm p-5 sm:p-6">
+      <div className="flex flex-wrap items-start justify-between gap-3 mb-5">
+        <div className="space-y-2">
+          <h3 className="text-base font-semibold text-gray-900">{title}</h3>
+          {subtitle && <Skeleton className="h-3 w-44" />}
+        </div>
+        {right}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+export function ChartCardSkeleton({ title, toggle = true }) {
+  return (
+    <CardShell title={title} right={toggle ? <Skeleton className="h-8 w-32 rounded-xl" /> : null}>
+      <Skeleton className="w-full h-64 sm:h-72 rounded-xl" />
+    </CardShell>
+  );
+}
+
+export function ListCardSkeleton({ title, rows = 5, avatar = 'rounded-xl' }) {
+  return (
+    <CardShell title={title}>
+      <div className="space-y-4">
+        {Array.from({ length: rows }, (_, i) => (
+          <div key={i} className="flex items-center gap-3">
+            <Skeleton className={`h-10 w-10 shrink-0 ${avatar}`} />
+            <div className="flex-1 space-y-2">
+              <div className="flex justify-between gap-3">
+                <Skeleton className="h-3.5 w-32" />
+                <Skeleton className="h-3.5 w-16" />
+              </div>
+              <Skeleton className="h-2 w-full rounded-full" />
+            </div>
+          </div>
+        ))}
+      </div>
+    </CardShell>
+  );
+}
+
+export function TableCardSkeleton({ title, rows = 5 }) {
+  return (
+    <CardShell title={title}>
+      <div className="divide-y divide-gray-50">
+        {Array.from({ length: rows }, (_, i) => (
+          <div key={i} className="flex items-center gap-4 py-3">
+            <Skeleton className="h-3.5 w-32" />
+            <Skeleton className="h-3.5 w-10 ml-auto" />
+            <Skeleton className="h-2 w-24 rounded-full hidden sm:block" />
+            <Skeleton className="h-3.5 w-20" />
+            <Skeleton className="h-3.5 w-16 hidden sm:block" />
+          </div>
+        ))}
+      </div>
+    </CardShell>
+  );
+}
+
+// Same layout as the Dashboard: header, 8 stat cards, three graphs stacked, the two
+// lists side by side, delivery areas, the two customer lists.
 export function DashboardSkeleton() {
   return (
     <div className="space-y-6">
-      <h2 className="text-2xl font-bold text-gray-900">Analytics Overview</h2>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {Array.from({ length: 4 }, (_, i) => <StatCardSkeleton key={i} />)}
-      </div>
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-        <div className="flex items-center justify-between mb-6">
-          <div className="space-y-2">
-            <h3 className="text-lg font-bold text-gray-900">Revenue Trends</h3>
-            <Skeleton className="h-3 w-36" />
-          </div>
-          <Skeleton className="h-8 w-36 rounded-xl" />
+      <div className="flex flex-wrap items-center justify-between gap-3 pl-12 lg:pl-0">
+        <div className="space-y-2">
+          <h2 className="text-2xl font-bold text-gray-900">Analytics Overview</h2>
+          <Skeleton className="h-3 w-72 max-w-full" />
         </div>
-        <Skeleton className="w-full h-72 sm:h-80 rounded-xl" />
+        <Skeleton className="h-9 w-56 rounded-xl" />
       </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+        {Array.from({ length: 8 }, (_, i) => <TileSkeleton key={i} />)}
+      </div>
+      <ChartCardSkeleton title="Revenue Trends" />
+      <ChartCardSkeleton title="Spends" />
+      <ChartCardSkeleton title="Orders by Hour" toggle={false} />
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {['Orders by Hour', 'Top Menu Items'].map((title) => (
-          <div key={title} className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-            <h3 className="text-lg font-bold text-gray-900 mb-6">{title}</h3>
-            <Skeleton className="w-full h-64 sm:h-72 rounded-xl" />
-          </div>
-        ))}
+        <ListCardSkeleton title="Top Menu Items" />
+        <ListCardSkeleton title="Most spends" />
+      </div>
+      <TableCardSkeleton title="Delivery areas" />
+      <div className="grid gap-4 lg:grid-cols-2">
+        <ListCardSkeleton title="Top customers" avatar="rounded-full" />
+        <ListCardSkeleton title="Haven't ordered for 30+ days" avatar="rounded-full" />
       </div>
     </div>
   );
