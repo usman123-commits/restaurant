@@ -4,18 +4,18 @@ import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine,
 } from 'recharts';
 import {
-  Wallet, Scale, Users, UserPlus, Repeat, MapPin, MessageSquare, ArrowRight, ArrowUpRight, ArrowDownRight, Info, X, Receipt,
+  Wallet, Scale, Users, Repeat, MapPin, MessageSquare, ArrowRight, ArrowUpRight, ArrowDownRight, Info, X, Receipt,
 } from 'lucide-react';
 import { useStaleData } from '../hooks/useStaleData';
 
-// Dashboard sections for a chosen period: money (spends graph, most spends), delivery areas and
-// customers. Data: GET /api/insights?from&to (server/shared/insights.js).
+// Dashboard pieces for a chosen period: stat cards, spends graph, most spends, delivery areas and
+// customer lists. Data: GET /api/insights?from&to (server/shared/insights.js).
 const fmt = (n) => Number(n || 0).toLocaleString('en-PK');
 const rs = (n) => `Rs. ${fmt(Math.round(n || 0))}`;
 const short = (v) => (Math.abs(v) >= 1000 ? `${Math.round(v / 1000)}k` : v);
 const DAY = 24 * 60 * 60 * 1000;
 const SPEND = '#ef4444';
-const RANGES = [['7', '7 days'], ['30', '30 days'], ['90', '90 days']];
+export const RANGES = [['7', '7 days'], ['30', '30 days'], ['90', '90 days']];
 const dateShort = (d) => new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'Asia/Karachi' });
 // 923001234521 -> 0300 ••• 4521
 const maskPhone = (p) => {
@@ -40,7 +40,7 @@ function Card({ title, subtitle, right, children, className = '' }) {
   );
 }
 
-function Segmented({ options, value, onChange }) {
+export function Segmented({ options, value, onChange }) {
   return (
     <div className="inline-flex items-center bg-gray-100 p-1 rounded-xl text-xs font-semibold">
       {options.map(([v, l]) => (
@@ -54,7 +54,7 @@ function Segmented({ options, value, onChange }) {
 }
 
 // "▲ 6%" vs the previous period. goodWhenUp: green when it went up (net), red when it went up (spends).
-function Change({ now, before, goodWhenUp }) {
+export function Change({ now, before, goodWhenUp }) {
   if (!before) return null;
   const pct = Math.round(((now - before) / Math.abs(before)) * 100);
   if (!Number.isFinite(pct)) return null;
@@ -63,13 +63,13 @@ function Change({ now, before, goodWhenUp }) {
   const Icon = up ? ArrowUpRight : ArrowDownRight;
   return (
     <span className={`inline-flex items-center gap-0.5 rounded-full px-2 py-0.5 text-[11px] font-semibold ${good ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
-      <Icon size={12} strokeWidth={2.5} />{Math.abs(pct)}%
+      <Icon size={12} strokeWidth={2.5} />{Math.abs(pct) > 999 ? '999%+' : `${Math.abs(pct)}%`}
     </span>
   );
 }
 
-function Tile({ label, value, icon: Icon, tone = 'gray', change, foot, valueClass = 'text-gray-900', children }) {
-  const tones = { red: 'bg-red-50 text-red-600', green: 'bg-green-50 text-green-600', blue: 'bg-blue-50 text-blue-600', purple: 'bg-purple-50 text-purple-600', gray: 'bg-gray-100 text-gray-600' };
+export function Tile({ label, value, icon: Icon, tone = 'gray', change, foot, valueClass = 'text-gray-900', children }) {
+  const tones = { brand: 'bg-brand-50 text-brand-600', red: 'bg-red-50 text-red-600', green: 'bg-green-50 text-green-600', blue: 'bg-blue-50 text-blue-600', purple: 'bg-purple-50 text-purple-600', gray: 'bg-gray-100 text-gray-600' };
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
       <div className="flex items-center justify-between gap-2">
@@ -132,7 +132,7 @@ function HighlightDot({ cx, cy, payload, labelled, edge }) {
   );
 }
 
-function SpendsChart({ series, days }) {
+export function SpendsChart({ series, days }) {
   const [view, setView] = useState(days === '7' ? 'daily' : 'weekly');
   const [picked, setPicked] = useState(null);
   const rows = series[view];
@@ -203,7 +203,7 @@ function SpendsChart({ series, days }) {
   );
 }
 
-function MostSpends({ categories, total }) {
+export function MostSpends({ categories, total }) {
   const max = Math.max(...categories.map((c) => c.amount), 1);
   return (
     <Card title="Most spends" subtitle="By category, biggest first" className="flex flex-col">
@@ -240,7 +240,7 @@ function MostSpends({ categories, total }) {
 
 // ---------- Delivery areas ----------
 
-function AreasTable({ areas }) {
+export function AreasTable({ areas }) {
   const max = Math.max(...areas.map((a) => a.revenue), 1);
   const total = areas.reduce((t, a) => ({ orders: t.orders + a.orders, revenue: t.revenue + a.revenue, deliveryCharges: t.deliveryCharges + a.deliveryCharges }), { orders: 0, revenue: 0, deliveryCharges: 0 });
   return (
@@ -318,24 +318,11 @@ function PersonRow({ p, rank, right, detail }) {
   );
 }
 
-function Customers({ c }) {
+export function CustomerLists({ c }) {
   const [all, setAll] = useState(false);
-  const newPct = c.total ? (c.new / c.total) * 100 : 0;
   const top = all ? c.top : c.top.slice(0, 5);
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <Tile label="Customers who ordered" value={fmt(c.total)} icon={Users} tone="purple" foot="WhatsApp + On Call, by phone number">
-          {c.total > 0 && (
-            <div className="mt-3 flex h-1.5 rounded-full overflow-hidden bg-gray-100">
-              <div className="bg-green-500" style={{ width: `${newPct}%` }} />
-              <div className="bg-blue-500 border-l-2 border-white" style={{ width: `${100 - newPct}%` }} />
-            </div>
-          )}
-        </Tile>
-        <Tile label="New customers" value={fmt(c.new)} icon={UserPlus} tone="green" foot="First order ever in this period" />
-        <Tile label="Returning customers" value={fmt(c.returning)} icon={Repeat} tone="blue" foot={c.total ? `${Math.round((c.returning / c.total) * 100)}% came back` : 'No customer orders yet'} />
-      </div>
       <div className="grid gap-4 lg:grid-cols-2">
         <Card title="Top customers" subtitle="Most spent in this period">
           {c.top.length ? (
@@ -380,75 +367,52 @@ function EmptyState({ icon: Icon, text, action }) {
   );
 }
 
-function SectionTitle({ title, subtitle }) {
-  return (
-    <div className="pt-2">
-      <h3 className="text-lg font-bold text-gray-900">{title}</h3>
-      {subtitle && <p className="text-xs text-gray-500 mt-0.5">{subtitle}</p>}
-    </div>
-  );
-}
-
-export default function BusinessSections() {
-  const [days, setDays] = useState('30');
+// The period's data (spends, areas, customers), from /api/insights.
+export function useInsights(days) {
   // whole minutes in the URL, so the cache key stays the same while the page is open
   const [now] = useState(() => new Date(Math.ceil(Date.now() / 60000) * 60000));
   const from = new Date(+now - Number(days) * DAY);
   const url = `/api/insights?from=${from.toISOString()}&to=${now.toISOString()}`;
   const { data, isPlaceholder } = useStaleData(url);
+  return { data: data && !data.error ? data : null, error: data?.error, isPlaceholder, from, now };
+}
 
-  const t = data?.money?.totals;
-  const prev = data?.previous;
+export function DemoBanner({ demo }) {
+  if (!demo || (!demo.orders && !demo.spends)) return null;
   return (
-    <div className="space-y-6">
-      {/* period header */}
-      <div className="flex flex-wrap items-end justify-between gap-3 pt-4 border-t border-gray-200/70">
-        <div>
-          <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-            Money &amp; customers
-            {isPlaceholder && <span className="w-2 h-2 rounded-full bg-brand-400 animate-pulse" title="Loading..." />}
-          </h2>
-          <p className="text-xs text-gray-500 mt-0.5">
-            Last {days} days · {dateShort(from)} – {dateShort(now)} · changes compare with the {days} days before
-          </p>
-        </div>
-        <Segmented options={RANGES} value={days} onChange={setDays} />
-      </div>
-
-      {data?.demo && (data.demo.orders > 0 || data.demo.spends > 0) && (
-        <div className="flex gap-2.5 rounded-xl bg-amber-50 border border-amber-100 px-4 py-3 text-sm text-amber-900">
-          <Info size={16} className="shrink-0 mt-0.5" />
-          <span>This period includes <b>demo data</b> ({data.demo.orders} orders, {data.demo.spends} spends, marked DEMO). Remove it with <code className="rounded bg-amber-100 px-1 text-xs">npm run demo:remove</code>.</span>
-        </div>
-      )}
-
-      {!data ? (
-        <div className="space-y-4">{[0, 1, 2].map((i) => <div key={i} className="h-56 rounded-2xl bg-gray-100 animate-pulse" />)}</div>
-      ) : data.error ? (
-        <p className="text-sm text-red-600">{data.error}</p>
-      ) : (
-        <div className={`space-y-6 transition-opacity ${isPlaceholder ? 'opacity-60' : ''}`}>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Tile label="Total spends" value={rs(t.spends)} icon={Wallet} tone="red"
-              change={<Change now={t.spends} before={prev?.spends} goodWhenUp={false} />}
-              foot={`${data.spendCategories.reduce((s, c) => s + c.count, 0)} entries on the Spend page`} />
-            <Tile label="Revenue − Spends" value={rs(t.net)} icon={Scale} tone={t.net >= 0 ? 'green' : 'red'}
-              valueClass={t.net >= 0 ? 'text-gray-900' : 'text-red-600'}
-              change={<Change now={t.net} before={prev?.net} goodWhenUp />}
-              foot={`${rs(t.revenue)} revenue − ${rs(t.spends)} spends · only spends entered on the Spend page`} />
-          </div>
-
-          <div className="grid gap-4 xl:grid-cols-3">
-            <div className="xl:col-span-2 min-w-0"><SpendsChart key={days} series={data.spendSeries} days={days} /></div>
-            <MostSpends categories={data.spendCategories} total={t.spends} />
-          </div>
-
-          <AreasTable areas={data.areas} />
-
-          <SectionTitle title="Customers" subtitle="Counted by phone number · WhatsApp + On Call" />
-          <Customers c={data.customers} />
-        </div>
-      )}
+    <div className="flex gap-2.5 rounded-xl bg-amber-50 border border-amber-100 px-4 py-3 text-sm text-amber-900">
+      <Info size={16} className="shrink-0 mt-0.5" />
+      <span>This period includes <b>demo data</b> ({demo.orders} orders, {demo.spends} spends, marked DEMO). Remove it with <code className="rounded bg-amber-100 px-1 text-xs">npm run demo:remove</code>.</span>
     </div>
+  );
+}
+
+// spends, revenue - spends and customers: the period's stat cards
+export function PeriodTiles({ data }) {
+  const t = data.money.totals;
+  const prev = data.previous;
+  const c = data.customers;
+  const newPct = c.total ? (c.new / c.total) * 100 : 0;
+  return (
+    <>
+      <Tile label="Total spends" value={rs(t.spends)} icon={Wallet} tone="red"
+        change={<Change now={t.spends} before={prev?.spends} goodWhenUp={false} />}
+        foot={`${data.spendCategories.reduce((s, x) => s + x.count, 0)} entries on the Spend page`} />
+      <Tile label="Revenue − Spends" value={rs(t.net)} icon={Scale} tone={t.net >= 0 ? 'green' : 'red'}
+        valueClass={t.net >= 0 ? 'text-gray-900' : 'text-red-600'}
+        change={<Change now={t.net} before={prev?.net} goodWhenUp />}
+        foot={`${rs(t.revenue)} revenue − ${rs(t.spends)} spends`} />
+      <Tile label="Customers who ordered" value={fmt(c.total)} icon={Users} tone="purple"
+        foot={c.total ? `${fmt(c.new)} new · ${fmt(c.returning)} returning` : 'WhatsApp + On Call, by phone number'}>
+        {c.total > 0 && (
+          <div className="mt-3 flex h-1.5 rounded-full overflow-hidden bg-gray-100" title={`${fmt(c.new)} new, ${fmt(c.returning)} returning`}>
+            <div className="bg-green-500" style={{ width: `${newPct}%` }} />
+            <div className="bg-blue-500 border-l-2 border-white" style={{ width: `${100 - newPct}%` }} />
+          </div>
+        )}
+      </Tile>
+      <Tile label="Returning customers" value={c.total ? `${Math.round((c.returning / c.total) * 100)}%` : '—'} icon={Repeat} tone="blue"
+        foot={c.total ? `${fmt(c.returning)} of ${fmt(c.total)} came back` : 'No customer orders yet'} />
+    </>
   );
 }
