@@ -8,10 +8,11 @@ import { moneySeries, spendSeries, spendsByCategory, areaStats, customerStats, l
 const router = Router();
 const DAY = 24 * 60 * 60 * 1000;
 
-// ?from&to (ISO), default the last 30 days, at most 400 days
+// ?days=N (the last N days up to now) or ?from&to (ISO); default the last 30 days, at most 400
 function rangeOf(q) {
   const to = q.to ? new Date(q.to) : new Date();
-  let from = q.from ? new Date(q.from) : new Date(+to - 30 * DAY);
+  const days = Number(q.days);
+  let from = q.from ? new Date(q.from) : new Date(+to - (days > 0 ? days : 30) * DAY);
   if (Number.isNaN(+from) || Number.isNaN(+to) || from >= to) throw Object.assign(new Error('bad date range'), { status: 400 });
   if (+to - +from > 400 * DAY) from = new Date(+to - 400 * DAY);
   return { from, to };
