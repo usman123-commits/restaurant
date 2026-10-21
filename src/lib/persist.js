@@ -1,5 +1,6 @@
 // Saved copies of the lists (Orders, Handoffs, Spend: the first page and the rows loaded with
-// "Load more") and of the Dashboard's data in this browser's IndexedDB, so a page refresh
+// "Load more"), the conversations (list + chats, lib/chatCache.js) and the Dashboard's data
+// in this browser's IndexedDB, so a page refresh
 // shows them straight away, and a failed request still has something to show.
 // The page still re-checks the server in the background, like before.
 //
@@ -11,11 +12,16 @@
 const DB_NAME = 'otto-dashboard';
 const STORE = 'cache';
 const MAX_AGE_MS = 24 * 60 * 60 * 1000;
-const MAX_ENTRIES = 300;
+const MAX_ENTRIES = 400;
 const WRITE_DELAY_MS = 400;
-const PERSIST_PATHS = ['/api/orders', '/api/handoffs', '/api/spend', '/api/analytics', '/api/insights'];
+const PERSIST_PATHS = ['/api/orders', '/api/handoffs', '/api/spend', '/api/analytics', '/api/insights', '/api/blocked'];
+// conversations: the list (/api/conversations?...) and each chat (/api/conversations/<phone>?...)
+const PERSIST_PREFIXES = ['/api/conversations'];
 
-export const persistable = (url) => PERSIST_PATHS.some((p) => url === p || url.startsWith(`${p}?`));
+export const persistable = (url) =>
+  PERSIST_PATHS.some((p) => url === p || url.startsWith(`${p}?`)) ||
+  PERSIST_PREFIXES.some((p) => url === p || url.startsWith(`${p}?`) || url.startsWith(`${p}/`)) ||
+  url === '/api/handoffs/active-phones';
 
 let dbPromise = null;
 function db() {
