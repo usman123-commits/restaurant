@@ -369,12 +369,12 @@ function EmptyState({ icon: Icon, text, action }) {
 
 // The period's data (spends, areas, customers), from /api/insights.
 export function useInsights(days) {
-  // whole minutes in the URL, so the cache key stays the same while the page is open
-  const [now] = useState(() => new Date(Math.ceil(Date.now() / 60000) * 60000));
-  const from = new Date(+now - Number(days) * DAY);
-  const url = `/api/insights?from=${from.toISOString()}&to=${now.toISOString()}`;
-  const { data, isPlaceholder } = useStaleData(url);
-  return { data: data && !data.error ? data : null, error: data?.error, isPlaceholder, from, now };
+  // the server works out the dates, so the URL (= the cache key, also saved in IndexedDB)
+  // stays the same across refreshes and days
+  const url = `/api/insights?days=${days}`;
+  const { data, isPlaceholder, failed, revalidate } = useStaleData(url);
+  const range = data?.range ? { from: new Date(data.range.from), now: new Date(data.range.to) } : {};
+  return { data: data && !data.error ? data : null, error: data?.error, failed, revalidate, isPlaceholder, ...range };
 }
 
 export function DemoBanner({ demo }) {

@@ -1,5 +1,6 @@
 // Saved copies of the lists (Orders, Handoffs, Spend: the first page and the rows loaded with
-// "Load more") in this browser's IndexedDB, so a page refresh shows them straight away.
+// "Load more") and of the Dashboard's data in this browser's IndexedDB, so a page refresh
+// shows them straight away, and a failed request still has something to show.
 // The page still re-checks the server in the background, like before.
 //
 // - Only list responses are saved (see PERSIST_PATHS), nothing else.
@@ -12,7 +13,7 @@ const STORE = 'cache';
 const MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const MAX_ENTRIES = 300;
 const WRITE_DELAY_MS = 400;
-const PERSIST_PATHS = ['/api/orders', '/api/handoffs', '/api/spend'];
+const PERSIST_PATHS = ['/api/orders', '/api/handoffs', '/api/spend', '/api/analytics', '/api/insights'];
 
 export const persistable = (url) => PERSIST_PATHS.some((p) => url === p || url.startsWith(`${p}?`));
 

@@ -6,10 +6,12 @@ const router = Router();
 // GET /api/analytics
 router.get('/', async (req, res) => {
   try {
-    const [orders, conversations, menuItems] = await Promise.all([
-      Order.find().lean(),
-      Conversation.find().lean(),
-      MenuItem.find().lean(),
+    // only the fields used below; conversations: just the distinct phone numbers (loading
+    // every chat with all its messages made this slow enough to time out)
+    const [orders, convPhones, menuItems] = await Promise.all([
+      Order.find({}, { timestamp: 1, totalAmount: 1, items: 1, phone: 1 }).lean(),
+      Conversation.distinct('phone'),
+      MenuItem.find({}, { item: 1, price: 1, category: 1 }).lean(),
     ]);
 
     // Build menu lookup map
@@ -91,7 +93,7 @@ router.get('/', async (req, res) => {
     const ordersByHour = hourCounts.map((count, hour) => ({ hour, label: formatHour(hour), count }));
 
     // Conversion rate
-    const uniqueConvPhones  = new Set(conversations.map((c) => c.phone).filter(Boolean)).size;
+    const uniqueConvPhones  = new Set(convPhones.filter(Boolean)).size;
     const uniqueOrderPhones = new Set(orders.map((o) => o.phone).filter(Boolean)).size;
     const conversionRate    = uniqueConvPhones > 0 ? uniqueOrderPhones / uniqueConvPhones : 0;
 

@@ -62,7 +62,7 @@ function CustomTooltip({ active, payload, label, prefix = '', suffix = '' }) {
 
 export default function Dashboard() {
   const [revenuePeriod, setRevenuePeriod] = useState('7d');
-  const { data, revalidating } = useStaleData('/api/analytics');
+  const { data, revalidating, failed, revalidate } = useStaleData('/api/analytics');
   // spends, delivery areas and customers for the chosen period (7 / 30 / 90 days)
   const [days, setDays] = useState('30');
   const ins = useInsights(days);
@@ -77,6 +77,11 @@ export default function Dashboard() {
       <div className="text-center py-20 text-gray-400">
         <TrendingUp size={48} className="mx-auto mb-3 opacity-40" />
         <p>Unable to load analytics</p>
+        <p className="text-xs mt-1">The server didn't answer. Check the connection and try again.</p>
+        <button type="button" onClick={() => { revalidate(); ins.revalidate(); }}
+          className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-brand-500 text-white text-sm font-semibold hover:bg-brand-600">
+          Retry
+        </button>
       </div>
     );
   }
@@ -123,6 +128,13 @@ export default function Dashboard() {
         </div>
         <Segmented options={RANGES} value={days} onChange={setDays} />
       </div>
+
+      {(failed || ins.failed) && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-red-50 border border-red-100 px-4 py-2.5 text-sm text-red-800">
+          <span>Couldn't refresh from the server -- showing the last saved numbers.</span>
+          <button type="button" onClick={() => { revalidate(); ins.revalidate(); }} className="font-semibold underline">Retry</button>
+        </div>
+      )}
 
       <DemoBanner demo={ins.data?.demo} />
 
@@ -375,7 +387,7 @@ export default function Dashboard() {
           <AreasTable areas={ins.data.areas} />
           <CustomerLists c={ins.data.customers} />
         </>
-      ) : !ins.error && (
+      ) : ins.failed ? null : !ins.error && (
         <>
           <TableCardSkeleton title="Delivery areas" />
           <div className="grid gap-4 lg:grid-cols-2">

@@ -21,6 +21,16 @@ import insightsRoutes from './routes/insights.js';
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+// API answers are never cached by the browser or Vercel, and carry no ETag: the app keeps
+// its own copies (useStaleData + IndexedDB). With ETags the browser sent "changed since?"
+// requests, the server answered 304 with an empty body, and a 304 that reached the app's
+// fetch looked like a failure ("Unable to load analytics").
+app.set('etag', false);
+app.use('/api', (req, res, next) => {
+  res.set('Cache-Control', 'no-store');
+  next();
+});
+
 // Middleware
 app.use(cors({
   origin: 'http://localhost:5173',
