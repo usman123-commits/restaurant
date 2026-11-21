@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { orderKind, moneySeries, spendsByCategory, areaStats, customerStats, liveBoard } from '../server/shared/insights.js';
+import { orderKind, moneySeries, spendSeries, spendsByCategory, areaStats, customerStats, liveBoard } from '../server/shared/insights.js';
 
 const at = (s) => new Date(s);
 const o = (extra) => ({ status: 'delivered', totalAmount: 1000, timestamp: at('2026-10-10T15:00:00Z'), ...extra });
@@ -34,10 +34,26 @@ test('money: revenue per kind and spends per day (Pakistan time), cancelled orde
   assert.equal(m.totals.revenue, 3200);
 });
 
-test('spends by category, biggest first', () => {
+test('spends by category, biggest first, with the number of entries', () => {
   assert.deepEqual(spendsByCategory([{ category: 'Gas', amount: 100 }, { category: 'Ingredients', amount: 900 }, { amount: 50 }, { category: 'Gas', amount: 300 }]), [
-    { category: 'Ingredients', amount: 900 }, { category: 'Gas', amount: 400 }, { category: 'Other', amount: 50 },
+    { category: 'Ingredients', amount: 900, count: 1 }, { category: 'Gas', amount: 400, count: 2 }, { category: 'Other', amount: 50, count: 1 },
   ]);
+});
+
+test('spends over time: per day and per week (Monday), one-off spends flagged', () => {
+  const from = at('2026-10-11T19:00:00Z'); // Mon 12 Oct 00:00 PKT
+  const to = at('2026-10-20T19:00:00Z'); //   Wed 21 Oct 00:00 PKT
+  const s = (day, amount, category = 'Ingredients') => ({ amount, category, timestamp: at(`2026-10-${day}T08:00:00Z`) });
+  const { daily, weekly } = spendSeries(
+    [s(12, 5000), s(13, 6000), s(14, 4000), s(15, 60000, 'Rent'), s(15, 5000), s(16, 5500), s(19, 7000), s(20, 3000)],
+    { from, to },
+  );
+  assert.equal(daily.length, 9);
+  assert.deepEqual(daily.map((d) => d.amount), [5000, 6000, 4000, 65000, 5500, 0, 0, 7000, 3000]);
+  assert.deepEqual(daily[3].highlight, { amount: 60000, category: 'Rent' });
+  assert.equal(daily[3].entries[0].category, 'Rent');
+  assert.equal(daily.filter((d) => d.highlight).length, 1);
+  assert.deepEqual(weekly.map((w) => [w.key, w.amount]), [['2026-10-12', 85500], ['2026-10-19', 10000]]);
 });
 
 test('areas: WhatsApp + On Call only, revenue and average order', () => {

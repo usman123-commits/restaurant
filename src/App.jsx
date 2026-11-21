@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import Sidebar from './components/Sidebar';
+import { forgetSavedLists } from './lib/restore';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Orders from './pages/Orders';
@@ -10,7 +11,6 @@ import MenuManager from './pages/MenuManager';
 import Handoffs from './pages/Handoffs';
 import Spend from './pages/Spend';
 import Settings from './pages/Settings';
-import Insights from './pages/Insights';
 
 // "This browser was logged in last time." Lets a reload draw the app (sidebar +
 // page skeletons) immediately while /api/auth/check runs in parallel with the
@@ -38,6 +38,8 @@ export default function App() {
 
   const setAuthenticated = (value) => {
     writeHint(value === true);
+    // logged out or session expired: delete the saved lists from this browser
+    if (value === false) forgetSavedLists();
     setAuthenticatedState(value);
   };
 
@@ -88,7 +90,7 @@ export default function App() {
         <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
           <Routes>
             <Route path="/" element={<Dashboard />} />
-            <Route path="/insights" element={<Insights />} />
+            <Route path="/insights" element={<Navigate to="/" replace />} />
             <Route path="/orders" element={<Orders />} />
             <Route path="/conversations" element={<Conversations />} />
             <Route path="/conversations/:phone" element={<ConversationDetail />} />

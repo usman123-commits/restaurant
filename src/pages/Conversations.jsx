@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { MessageSquare, ChevronRight, Search, Loader2, PhoneForwarded, Check, Ban } from 'lucide-react';
 import { useStaleData, invalidateCache } from '../hooks/useStaleData';
+import { getListPages, setListPages } from '../lib/chatCache';
 import { useDebouncedValue, buildUrl } from '../hooks/usePagedList';
 import { localReadAt } from '../lib/chat';
 import { useBlockedNumbers } from '../hooks/useBlockedNumbers';
@@ -27,8 +28,9 @@ function timeAgo(dateStr) {
 const PAGE_SIZE = 20;
 
 export default function Conversations() {
-  // Pages loaded via "Load more", tagged with the URL (= search) they belong to.
-  const [extra, setExtra] = useState({ url: null, items: [] });
+  // Rows loaded via "Load more", per list URL (= search), kept in lib/chatCache.js (memory +
+  // IndexedDB) so leaving the page or refreshing doesn't lose them. `version` re-renders.
+  const [, setVersion] = useState(0);
   const [loadingMore, setLoadingMore] = useState(false);
   const [search, setSearch] = useState('');
   const [handingOffPhone, setHandingOffPhone] = useState(null);
@@ -56,7 +58,8 @@ export default function Conversations() {
   // First page + extra pages. Dedupe by phone: the list is ordered by latest
   // message, so a conversation can move between pages while you browse.
   const seenPhones = new Set();
-  const conversations = [...firstPageList, ...(extra.url === listUrl ? extra.items : [])].filter((c) => {
+  const extraItems = getListPages(listUrl)?.items || [];
+  const conversations = [...firstPageList, ...extraItems].filter((c) => {
     if (seenPhones.has(c.phone)) return false;
     seenPhones.add(c.phone);
     return true;
@@ -71,10 +74,8 @@ export default function Conversations() {
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-      setExtra((prev) => ({
-        url: requestUrl,
-        items: [...(prev.url === requestUrl ? prev.items : []), ...(data.conversations || [])],
-      }));
+      setListPages(requestUrl, [...(getListPages(requestUrl)?.items || []), ...(data.conversations || [])]);
+      setVersion((v) => v + 1);
     } catch { /* silent */ }
     setLoadingMore(false);
   };
